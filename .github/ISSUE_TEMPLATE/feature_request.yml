@@ -1,0 +1,45 @@
+name: Предложение
+description: Идея, новый портал, новая функция
+title: "[Идея] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Мейнтейнер один и в свободное время, поэтому часть идей дожидается
+        очереди. Чтобы шанс на реализацию был выше:
+
+        * Опишите **проблему**, а не решение. «Хочу, чтобы было X» — сложнее
+          продать, чем «не могу сделать Y, потому что Z».
+        * Скажите, для кого это нужно и что сейчас мешает.
+        * Для нового портала — сначала проверьте ToS (см. шаблон «Портал сломался»).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую проблему решает
+      description: Опишите ситуацию, в которой сейчас неудобно или невозможно.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Как видите решение
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Как решаете сейчас
+      description: Есть ли обходной путь, которым пользуетесь?
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Границы
+      options:
+        - label: Понимаю, что проект бесплатный и без облачного сервиса
+          required: true
+        - label: Готов(а) сам(а) реализовать это (PR приветствуется)

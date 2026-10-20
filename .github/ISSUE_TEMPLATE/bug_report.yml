@@ -1,0 +1,95 @@
+name: Ошибка
+description: Программа падает, работает неверно или выдаёт ерунду
+title: "[Ошибка] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что потратили время на баг-репорт. Он реально помогает.
+
+        **Перед отправкой проверьте:** в [troubleshooting](../blob/main/docs/troubleshooting.md)
+        описаны типовые проблемы — возможно, ваш случай уже там.
+
+        **Не публикуйте API-ключи и чужие персональные данные.**
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия
+      placeholder: "v0.9.0-preview (или «последний релиз»)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: ОС
+      options:
+        - Windows 11
+        - Windows 10
+        - Другое
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: Окружение
+      description: |
+        Версия .NET не нужна (self-contained), но укажите:
+        - Windows: версия и разрядность;
+        - процессор и ОЗУ (если без GPU — отметьте это);
+        - каталог установки (из `Program Files` или нет).
+      placeholder: 'Windows 11 x64, 8 ГБ ОЗУ, без GPU, D:\Tools\ai-job-search-by'
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: Что произошло
+      description: Что ожидали и что получили на самом деле.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: |
+        1.
+        2.
+        3.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: keys
+    attributes:
+      label: Использовались ключи ИИ?
+      options:
+        - Нет, запустил без ключей
+        - Да, с ключами
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Журнал
+      description: |
+        Содержимое `%APPDATA%\ai-job-search-by\logs\` (последний файл).
+        **Проверьте, что в нём нет персональных данных и ключей** —
+        ключи туда не пишутся, но вакансии пишутся.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверки
+      options:
+        - label: Я проверил(а), что в логах и тексте нет ключей API и чужих персональных данных
+          required: true
+        - label: Я искал(а) похожие issue — моя проблема не дублируется
+          required: true

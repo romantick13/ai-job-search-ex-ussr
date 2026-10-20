@@ -1,0 +1,79 @@
+# ---- СЕКРЕТЫ. Никогда не коммитить. ----
+.env
+.env.*
+*.env
+secrets.json
+keys.json
+apikeys.json
+api-keys.json
+providers.local.json
+*.key
+*.pem
+*.pfx
+*.p12
+
+# ---- Локальные настройки и состояние ----
+rate-limit.json
+rate-limits.json
+local.settings.json
+appsettings.local.json
+appsettings.*.local.json
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+state.json
+settings.local.json
+
+# ---- Сборка ----
+bin/
+obj/
+publish/
+dist/
+artifacts/
+*.zip
+!docs/**/*.zip
+*.exe
+*.dll
+*.pdb
+
+data/
+
+# ---- Логи ----
+logs/
+**/*.log
+
+# ---- IDE ----
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ---- Python one-shot скрипты (RFC-001) ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ---- OS ----
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Локальный мусор — только в корне (вложенные файлы репо не трогать).
+/donor*.*
+!donor-map-ai-job-search-by.md
+/0*.*
+/1*.*
+/tree*.*
+/make*.*
+
+# Рантайм-конфиг живёт в %APPDATA%\ai-job-search-by\ — в репо не хранится.
+# Исключение — дословная копия донора в prompts/raw (провенанс, rfc-007).
+settings.json
+!prompts/raw/claude/settings.json
+**/donor*.*

@@ -1,0 +1,22 @@
+# Канон: UTF-8 без BOM + LF (RFC/rfc-007-license-and-notices.md §0.11).
+* text=auto eol=lf
+
+*.md   text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.py   text eol=lf
+*.cs   text eol=lf
+*.ps1  text eol=lf
+*.cmd  text eol=lf
+
+# Бинарники
+*.png  binary
+*.ico  binary
+*.gif  binary
+*.ttf  binary
+*.otf  binary
+*.db   binary
+*.zip  binary
+*.exe  binary
+*.dll  binary
