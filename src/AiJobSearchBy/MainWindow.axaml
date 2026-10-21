@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:AiJobSearchBy.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="720" d:DesignHeight="480"
+        x:Class="AiJobSearchBy.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="ai-job-search-by"
+        Width="720" Height="480">
+
+  <!-- Грабли (RFC-001 §2): StackPanel — Margin, не Padding;
+       длинный текст — в ScrollViewer. -->
+  <ScrollViewer>
+    <StackPanel Margin="24" Spacing="12">
+      <TextBlock Text="{Binding Greeting}"
+                 TextWrapping="Wrap"
+                 FontSize="16" />
+    </StackPanel>
+  </ScrollViewer>
+
+</Window>

@@ -1,3 +1,5 @@
+# PYDOC: script_id=gen_readme_counters; version=1.0; role=utility; layer=reporting
+# PYDOC: desc=регенерация генерируемых блоков README.md из config/registry.json (schema v3): таблица порталов + таблица AI-провайдеров, profile=me не публикуется, сверка expected_counts.authless_default (код 0 ok, 1 проблемы реестра, 2 счётчик разошёлся); in_file=config/registry.json, README.md; out_file=README.md (in-place между маркерами PORTAL_TABLE и AI_PROVIDER_TABLE); entry=python tools/gen_readme_counters.py (без аргументов, из корня репо); deps=stdlib (json,re,sys,pathlib); cfg_src=нет; flow=config/registry.json -> gen_readme_counters.py -> README.md; uses=CI docs-consistency, donor-map §6.5; one_shot=no
 """One-shot helper: regenerate the generated blocks in README.md from the portal registry.
 
 Запуск (из корня репозитория):

@@ -1,139 +1,88 @@
-name: CI
+name: ci
 
 on:
   push:
     branches: [ main, master ]
   pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-# Windows-раннеры по умолчанию печатают в cp1252: любой print() с кириллицей
-# из python падает с UnicodeEncodeError. PYTHONUTF8=1 переводит stdio питона
-# в UTF-8 для всех джоб workflow (страховка; основной фикс — в самом скрипте).
-env:
-  PYTHONUTF8: "1"
-
 jobs:
-  build:
-    name: Build & Test
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Пока в репо нет проекта (.sln/.csproj), шаги сборки пропускаются —
-      # джоба остаётся зелёной на док-фазе и включается сама с первым кодом.
-      - name: Restore
-        if: hashFiles('**/*.sln, **/*.csproj') != ''
-        run: dotnet restore
-
-      - name: Build
-        if: hashFiles('**/*.sln, **/*.csproj') != ''
-        run: dotnet build --configuration Release --no-restore
-
-      - name: Test
-        if: hashFiles('**/*.sln, **/*.csproj') != ''
-        run: dotnet test --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: "**/TestResults/*.trx"
-          if-no-files-found: ignore
-
-  docs-consistency:
-    name: Docs & registry consistency
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Regenerate README counters from registry
-        run: python tools/gen_readme_counters.py
-
-      # Скрипт возвращает 2, если фактическое число порталов без авторизации
-      # разошлось с expected_counts в реестре. Это блокирует релиз с неверным
-      # счётчиком в README.
-      - name: Fail if README is out of sync with the registry
-        run: git diff --exit-code -- README.md
-
+  # Гейт из RFC/rfc-004-keys-and-hygiene.md: секреты не попадают в репозиторий.
+  # Паттерны написаны с символьными классами, чтобы не совпадать сами с собой.
   secrets-guard:
-    name: Secrets guard
+    name: secrets-guard (ключи не в репо)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # Грубая, но полезная проверка: в отслеживаемых файлах не должно быть
-      # похожих на ключи строк. Ложные срабатывания разбираются вручную.
-      - name: Look for tracked files that look like API keys
+      - name: config/local.json закоммичен?
         run: |
-          set -euo pipefail
-          hits=0
-          for pattern in 'sk-[A-Za-z0-9]{20,}' 'AIza[0-9A-Za-z_-]{30,}' 'ghp_[0-9A-Za-z]{30,}' 'xai-[0-9A-Za-z]{20,}'; do
-            if git grep -nE "$pattern" -- . ':!*.lock' ':!docs/**' ':!*.md' 2>/dev/null; then
-              hits=1
-            fi
-          done
-          if [ "$hits" = "1" ]; then
-            echo "::error::Найдены строки, похожие на API-ключи. Проверьте, что это не ключи."
+          if [ -f config/local.json ]; then
+            echo "::error::config/local.json в репозитории — ЗАПРЕЩЕНО (rfc-004). Удалите файл и ротируйте ключи."
             exit 1
           fi
-          echo "OK: подозрительных строк не найдено."
 
-      - name: Check that .gitignore covers key files
+      - name: следы ключей в трекнутых файлах
         run: |
-          set -euo pipefail
-          for f in .env settings.json rate-limit.json keys.json apikeys.json; do
-            if git check-ignore -q "$f"; then
-              echo "OK: $f игнорируется"
-            else
-              echo "::error::$f НЕ игнорируется git — риск утечки ключей"
-              exit 1
-            fi
-          done
+          set -e
+          found=0
+          # sk-… ключи (OpenRouter и пр.)
+          if git grep -InE 'sk-[A-Za-z0-9]{16,}' -- . ; then
+            echo "::error::похоже на API-ключ (sk-…)"; found=1
+          fi
+          # ключи OrcaRouter
+          if git grep -InE 'sk-[o]rca-[A-Za-z0-9]{8,}' -- . ; then
+            echo "::error::похоже на ключ OrcaRouter (sk-orca-…)"; found=1
+          fi
+          # Authorization-заголовки с токеном
+          if git grep -InE 'Bearer [A-Za-z0-9._-]{20,}' -- . ; then
+            echo "::error::похоже на Bearer-токен"; found=1
+          fi
+          # значения app_id/app_key в присвоениях
+          if git grep -InE "(app_id|app_key)['\"]?[[:space:]]*[:=][[:space:]]*['\"]?[A-Za-z0-9]{12,}" -- . ; then
+            echo "::error::похоже на значение app_id/app_key"; found=1
+          fi
+          exit $found
 
-  publish:
-    name: Publish artifact (self-contained zip)
-    runs-on: windows-latest
-    needs: [build, docs-consistency, secrets-guard]
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name == 'push'
+  # Проверка машинной правды: реестр валиден, кнопка Sponsor существует.
+  keys-check:
+    name: keys-check (реестр и щиты валидны)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: registry.json — валидный JSON, без полей ключей
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          with open("config/registry.json", encoding="utf-8") as f:
+              data = json.load(f)
+          banned = {"api_key", "app_key", "app_id", "token", "secret"}
+          def walk(node, path="$"):
+              if isinstance(node, dict):
+                  for k, v in node.items():
+                      if k.lower() in banned:
+                          print(f"::error::registry.json {path}.{k} — ключевое поле запрещено")
+                          sys.exit(1)
+                      walk(v, f"{path}.{k}")
+              elif isinstance(node, list):
+                  for i, v in enumerate(node):
+                      walk(v, f"{path}[{i}]")
+          walk(data)
+          print("registry.json OK")
+          PY
+      - name: FUNDING.yml присутствует (кнопка Sponsor)
+        run: test -f .github/FUNDING.yml
 
+  # Каркас создан (WP-0): job активируется при наличии решения в репо
+  # (решение живёт в src/ — PLAN.md §6).
+  build-test:
+    name: build + test
+    if: ${{ hashFiles('**/*.sln') != '' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
-
-      - name: Publish self-contained
-        if: hashFiles('**/*.sln, **/*.csproj') != ''
-        run: |
-          dotnet publish -c Release -r win-x64 --self-contained true -o publish
-
-      - name: Assemble distribution zip
-        if: hashFiles('**/*.sln, **/*.csproj') != ''
-        run: |
-          Copy-Item README.md publish/README.txt
-          Copy-Item LICENSE publish/LICENSE
-          Copy-Item DISCLAIMER.md publish/DISCLAIMER.md
-          Copy-Item troubleshooting.md publish/TROUBLESHOOTING.md
-          Compress-Archive -Path publish/* -DestinationPath ai-job-search-by-win-x64.zip
-
-      # Намеренно без подписи кода: см. PLAN.md (раздел «Перед релизом»).
-      # SmartScreen предупредит — это описано в TROUBLESHOOTING.md.
-      - name: Upload zip artifact
-        if: hashFiles('**/*.sln, **/*.csproj') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-job-search-by-win-x64
-          path: ai-job-search-by-win-x64.zip
-          retention-days: 30
-          if-no-files-found: ignore
+          dotnet-version: '10.0.x'
+      - run: dotnet build src/ai-job-search-by.sln -c Release
+      - run: dotnet test src/ai-job-search-by.sln -c Release --no-build

@@ -100,7 +100,7 @@ CascadeAiService: цепь упорядочена по DefaultPriority (мень
 Провайдеры (приоритеты и факты — реестр 2026-10-17):
 | Приоритет | Провайдер | Факты/лимиты |
 |---|---|---|
-| 1  | BionicProvider | localhost:1234; безлимитно, медленно; субчанки ≤15000 (иначе 400 Engine protocol failed); StripThinkingBlock |
+| 1  | BionicProvider | localhost:1234; безлимитно, медленно; субчанки ≤15000 (иначе 400 Engine protocol failed); StripThinkingBlock; по умолчанию выкл — галочка в настройках (рев. 7) |
 | 10 | OpenRouterProvider | 50 req/day; free-фильтр pricing.prompt=="0" && pricing.completion=="0" (СТРОКИ); openrouter/auto на free = всегда 402 (запрещён); скоринг семейств + кулдауны 429 персист (адаптив 5→60 мин); липкость по модели внутри; ModelBecamePaid → сброс липкости |
 | 20 | OrcaRouterProvider | api.orcarouter.ai/v1, ключ sk-orca-; 50 req/day free (после $20 платежей воркспейса → 800/day); free-пул ротируется; нужен GitHub с историей; Lite (MIT) = self-host альтернатива |
 | 30 | OmniRouteProvider | локальный роутер владельца; мало free-моделей; вкл если настроен |

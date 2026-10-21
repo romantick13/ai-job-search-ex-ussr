@@ -1,0 +1,11 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="AiJobSearchBy.App"
+             RequestedThemeVariant="Default">
+
+  <!-- Канон UI: Fluent (RFC-001 §2); TabControl запрещён (architecture.md §4) -->
+  <Application.Styles>
+    <FluentTheme />
+  </Application.Styles>
+
+</Application>
