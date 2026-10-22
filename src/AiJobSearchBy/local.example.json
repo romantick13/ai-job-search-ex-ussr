@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "Ai": {
+    "Llm7": {
+      "ApiKey": ""
+    },
+    "ModelScope": {
+      "ApiKey": ""
+    },
+    "SiliconFlow": {
+      "ApiKey": ""
+    },
+    "Embeddings": {
+      "BaseUrl": "http://127.0.0.1:11434/v1",
+      "Model": "qwen3-embedding:0.6b"
+    }
+  },
+  "Portals": {}
+}

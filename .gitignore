@@ -79,3 +79,20 @@ settings.json
 **/donor*.*
 ai*.*
 worklog*.*
+**/config*.*
+research/
+ 
+local.json
+config/local.json
+data/
+logs/
+*.db
+*.db-shm
+*.db-wal
+bench/
+*.user
+
+# Сборка
+bin/
+obj/
+patch*.*

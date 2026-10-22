@@ -1,13 +1,3 @@
-// FLOW: любой сервис/адаптер -> ILogService -> диск logs/ai-job-search-by-YYYYMMDD.log
-//        + живая лента Logs (сейчас stdout/окно, после WP-U — окна дашборда)
-// LIFECYCLE: создаётся в CompositionRoot как singleton (AddSingleton<ILogService, LogService>);
-//        живёт от старта процесса до выхода; сквозь весь прогон один экземпляр
-// STATE: Logs — кольцевой буфер на 300 строк; файл протокола выбирается по текущей
-//        дате (ротация на добор в полночь); DiskWriteFailures — счётчик сбоев диска
-// THREAD: вызовы допустимы с любого потока; все обращения к общему состоянию — под
-//        _gate (в доноре маршалинг был через Avalonia Dispatcher.UIThread.Invoke;
-//        в CLI Avalonia нет — отклонение помечено ниже)
-
 // ВЕРБАТИМ-ПОРТ из донора MDC (upload/MDC.zip -> MDC/MDC/Services/ILogService.cs,
 // исходники получены от владельца; см. worklog, задача по распаковке доноров):
 // сохранено дословно — интерфейс ILogService (Logs, Log, LogSuccess, LogError,
@@ -64,11 +54,19 @@ public class LogService : ILogService
     // К3: сколько раз запись протокола на диск не удалась
     public int DiskWriteFailures { get; private set; }
 
+    // НАШЕ (хотфикс 2026-10-22): путь к текущему файлу протокола — та же формула,
+    // что в AppendDisk; баннер старта печатает его первой строкой в окно
+    // (урок владельца «еле нашёл лог»: файл лежит в %APPDATA%\ai-job-search-by\logs\)
+    public string CurrentLogFilePath =>
+        Path.Combine(_logDirectory, $"ai-job-search-by-{DateTime.Now:yyyyMMdd}.log");
+
     private readonly object _gate = new();
     private readonly string _logDirectory;
     private readonly bool _echoToConsole;
     private bool _diskFailureAnnounced;
 
+    // LIFECYCLE: создаётся в CompositionRoot как singleton (AddSingleton<ILogService, LogService>);
+    //        живёт от старта процесса до выхода; сквозь весь прогон один экземпляр
     public LogService(string? logDirectory = null, bool echoToConsole = true)
     {
         _echoToConsole = echoToConsole;
@@ -125,6 +123,13 @@ public class LogService : ILogService
 
     private void AddLog(string message)
     {
+        // FLOW: любой сервис/адаптер -> ILogService -> диск logs/ai-job-search-by-YYYYMMDD.log
+        //        + живая лента Logs (сейчас stdout/окно, после WP-U — окна дашборда)
+        // STATE: Logs — кольцевой буфер на 300 строк; файл протокола выбирается по текущей
+        //        дате (ротация на добор в полночь); DiskWriteFailures — счётчик сбоев диска
+        // THREAD: вызовы допустимы с любого потока; все обращения к общему состоянию — под
+        //        _gate (в доноре маршалинг был через Avalonia Dispatcher.UIThread.Invoke;
+        //        в CLI Avalonia нет — отклонение помечено ниже)
         lock (_gate)
         {
             Logs.Add(message);

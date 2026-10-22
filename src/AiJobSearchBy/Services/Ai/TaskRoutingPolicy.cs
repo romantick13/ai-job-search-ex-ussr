@@ -1,7 +1,3 @@
-// FLOW: оркестратор -> RunAsync(стадия) -> OrderFor -> цепь провайдеров -> AiChatResult|null; отказ/фолбэк — всегда в протокол
-// LIFECYCLE: синглтон DI; список провайдеров фиксируется при регистрации (CompositionRoot)
-// STATE: мутируемого нет; coverLetterOrder — конфиг порядка письма (llm7 первым)
-// THREAD: безопасен — списки read-only после ctor
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -37,6 +33,9 @@ public sealed class TaskRoutingPolicy
     /// Имена провайдеров письма по возрастанию цены, например ["llm7"].
     /// null → порядок по качеству (llm7 последним).
     /// </param>
+    // LIFECYCLE: синглтон DI; список провайдеров и порядок письма фиксируются при регистрации (CompositionRoot)
+    // STATE: мутируемого нет — списки read-only после ctor; coverLetterOrder — конфиг порядка письма (llm7 первым)
+    // THREAD: безопасен с любого потока
     public TaskRoutingPolicy(ILogService log,
                              IEnumerable<IAiChatProvider> providers,
                              IReadOnlyList<string>? coverLetterOrder = null)
@@ -78,7 +77,8 @@ public sealed class TaskRoutingPolicy
     /// занятость/бюджет → фолбэк, исчерпание всех → LogError + null
     /// (громко: причины в протоколе, тишины нет).
     /// </summary>
-    // FLOW: OrderFor(kind) -> по цепи CompleteAsync -> первый успех возвращается;
+    // FLOW: оркестратор: RunAsync(стадия) -> OrderFor -> цепь провайдеров -> AiChatResult|null;
+    //        OrderFor(kind) -> по цепи CompleteAsync -> первый успех возвращается;
     //        AiProviderBusyException -> LogWarn причины -> следующий; все заняты -> LogError + null
     // THREAD: безопасен — последовательный прогон, состояние только локальные переменные
     public async Task<AiChatResult?> RunAsync(AiTaskKind kind, AiChatRequest request, CancellationToken ct = default)

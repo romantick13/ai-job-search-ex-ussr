@@ -1,13 +1,14 @@
-// FLOW: типы-каноны портального слоя; consumed всеми адаптерами и реестром,
-// сами никуда не обращаются — это словарь домена.
-// LIFECYCLE: инстансов не создаёт; значения живут в PortalDescriptor.Id/Access/Auth
-// и в отчётах PortalRunReport.
-// STATE: неизменяемые константы — хранения состояния нет.
-// THREAD: enum потокобезопасен по определению.
 namespace AiJobSearchBy.Portals;
 
 // Канонические перечисления портального слоя: architecture.md §3.3/§5,
 // RFC-003 (DECISIONS.md). Значения хранятся в БД строкой — имена не переименовывать.
+
+// FLOW: типы-каноны портального слоя; consumed всеми адаптерами и реестром,
+//        сами никуда не обращаются — это словарь домена.
+// LIFECYCLE: инстансов не создаёт; значения живут в PortalDescriptor.Id/Access/Auth
+//        и в отчётах PortalRunReport.
+// STATE: неизменяемые константы — хранения состояния нет.
+// THREAD: enum потокобезопасен по определению.
 
 // SourceClass (§3.3): commercial | government | aggregator.
 public enum PortalSourceClass

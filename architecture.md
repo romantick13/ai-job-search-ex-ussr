@@ -219,6 +219,9 @@ CREATE TABLE IF NOT EXISTS Applications (
   Id TEXT PRIMARY KEY, VacancyId TEXT NOT NULL REFERENCES Vacancies(Id),
   Status TEXT NOT NULL DEFAULT 'draft', CvPath TEXT, LetterPath TEXT,
   SentAt TEXT, FollowUpAt TEXT, Notes TEXT, CreatedAt TEXT NOT NULL );
+  -- Расширение WP-U1 (решение владельца 2026-10-22, EnsureColumn-миграции):
+  -- Employer, VacancyTitle, VacancyUrl, ResumeText (вариант, который был
+  -- отправлен — модальное окно истории), VectorJson, VectorModel.
 CREATE TABLE IF NOT EXISTS ScrapeRuns (
   Id TEXT PRIMARY KEY, StartedAt TEXT NOT NULL, FinishedAt TEXT,
   PortalOrderSnapshot TEXT NOT NULL, ConfigSnapshotHash TEXT NOT NULL,
@@ -233,6 +236,13 @@ CREATE TABLE IF NOT EXISTS AiJobs (
   Status TEXT NOT NULL, RawResponse TEXT, ParseStatus TEXT NOT NULL DEFAULT 'ok',
   StartedAt TEXT, FinishedAt TEXT );
 CREATE TABLE IF NOT EXISTS SettingsKV ( Key TEXT PRIMARY KEY, Value TEXT NOT NULL );
+CREATE TABLE IF NOT EXISTS PdfDocuments ( -- WP-U1 (решение владельца
+  -- 2026-10-22): PDF живут на диске (папка откликов), база — векторная
+  -- ссылка: путь + хэш + извлечённый текст + вектор локального эмбеддера
+  -- (WP-U2: Qwen3-Embedding-0.6B по умолчанию, Apache-2.0; VectorModel —
+  -- модель-владелец вектора, смена модели = пере-векторизация из базы).
+  Id TEXT PRIMARY KEY, FilePath TEXT NOT NULL UNIQUE, FileHash TEXT NOT NULL,
+  ExtractedText TEXT, VectorJson TEXT, VectorModel TEXT, IndexedAt TEXT NOT NULL );
 История AI-результатов не теряется (канон: связь результат ↔ промпт ↔
 версия ↔ провайдер ↔ модель ↔ raw ↔ parse status).
 

@@ -120,7 +120,10 @@ services.AddSingleton<TaskRoutingPolicy>(_ => new TaskRoutingPolicy(
 или обернуть адаптером; `QualityRank`: openrouter=1, orcarouter=2, llm7=3.
 Занятость/исчерпание лимита кидать `AiProviderBusyException` (цепь перейдёт
 к следующему), конфигурационные ошибки — обычными исключениями.
-3. `ProbeModelsAsync()` — один раз при старте приложения.
+3. `ProbeModelsAsync()` — один раз при старте приложения
+   (вшито 2026-10-21: `Program.ProbeCatalogsInBackground` — фоновая проба,
+   UI не ждёт; llm7 всегда, облачные OpenAI-совместимые — только с ключом,
+   локальные не зондируются).
 4. Стадию match в оркестраторе переключить на `LocalMatchScorer`;
    `RunAsync(AiTaskKind.MatchAssessment, ...)` больше не вызывается
    (политика громко откажет).

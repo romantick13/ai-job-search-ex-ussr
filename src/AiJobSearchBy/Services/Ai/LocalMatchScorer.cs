@@ -1,7 +1,3 @@
-// FLOW: оркестратор отклика -> Score(резюме, вакансия) -> LocalMatchVerdict + строка [scorer] в протокол
-// LIFECYCLE: синглтон DI; состояния между вызовами нет
-// STATE: нет (стоп-лист и regex — static readonly)
-// THREAD: безопасен — static readonly + локальные переменные
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -49,6 +45,8 @@ public sealed class LocalMatchScorer
     private readonly int _highThreshold;
     private readonly int _mediumThreshold;
 
+    // LIFECYCLE: синглтон DI; состояния между вызовами нет
+    // THREAD: безопасен — стоп-лист и regex static readonly, остальное — локальные переменные
     public LocalMatchScorer(ILogService log, int highThreshold = 70, int mediumThreshold = 40)
     {
         _log = log;
@@ -60,7 +58,8 @@ public sealed class LocalMatchScorer
     /// Оценка соответствия резюме вакансии. Каждый вызов протоколируется
     /// строкой [scorer] с вердиктом и нулевым расходом (НИ-4: действие=событие).
     /// </summary>
-    // FLOW: два текста -> токенизация (стоп-лист) -> покрытие вакансийных токенов резюменными
+    // FLOW: оркестратор отклика -> Score(резюме, вакансия) -> LocalMatchVerdict + строка [scorer] в протокол;
+    //        два текста -> токенизация (стоп-лист) -> покрытие вакансийных токенов резюменными
     //        -> процент -> уровень (пороги ctor) -> [scorer] в протокол -> вердикт
     // STATE: мутируемого нет — всё локальные переменные (детерминированный порядок вывода)
     public LocalMatchVerdict Score(string resumeText, string vacancyText)

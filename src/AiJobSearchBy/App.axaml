@@ -1,9 +1,10 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="AiJobSearchBy.App"
-             RequestedThemeVariant="Default">
+             RequestedThemeVariant="Dark">
 
-  <!-- Канон UI: Fluent (RFC-001 §2); TabControl запрещён (architecture.md §4) -->
+  <!-- Канон UI: Fluent (RFC-001 §2); TabControl запрещён (architecture.md §4).
+     WP-U0: Dark — под стиль Emerald Crystal донора UniD (glassmorphism.txt). -->
   <Application.Styles>
     <FluentTheme />
   </Application.Styles>

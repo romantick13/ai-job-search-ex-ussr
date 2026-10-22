@@ -1,13 +1,10 @@
-// FLOW: TaskRoutingPolicy -> CompleteAsync -> AiChatResult; расход уходит в ResponseCostCounter оркестратора
-// LIFECYCLE: реализации — синглтоны DI (CompositionRoot); лимит-регистры персистятся в state/*.json
-// STATE: reqLedger/tokenLedger (сутки/потрачено), _serialGate (одновременность); конфиг — readonly
-// THREAD: регистры под своими _gate; _serialGate сериализует вызовы (ModelScope: 1 одновременный)
 using System;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using AiJobSearchBy.Services;
@@ -25,7 +22,16 @@ namespace AiJobSearchBy.Services.Ai;
 //   • ModelScope: «2,000 API Inference calls per day» на аккаунт, «200 calls
 //     per model per day» максимум, «single-request concurrency for every
 //     developer», сброс ежедневно UTC+8 00:00 (= 19:00 по Минску).
-//     base: https://api-inference.modelscope.cn/v1/ — ключ ОБЯЗАТЕЛЕН.
+//     base: https://api-inference.modelscope.ai/v1/ — ключ ОБЯЗАТЕЛЕН.
+//     Живая эмпирика владельца (2026-10-21, вечер): Read-only токен с
+//     международной modelscope.ai работает ТОЛЬКО на .ai — китайский .cn
+//     отвечает 401 «Authentication failed» (площадки независимы, токены
+//     НЕ взаимозаменяемы); Magicubes требует подтверждённый email (403
+//     «complete your profile via email verification»); гибридным Qwen
+//     слать enable_thinking=false, иначе шлюз Tengine отдаёт 504 Gateway
+//     Timeout; бесплатный каталог .ai узкий: Qwen3-8B и
+//     DeepSeek-R1-Distill-Qwen-7B = 400 «has no provider supported»,
+//     Qwen/Qwen3.5-397B-A17B живой (тест «pong» при enable_thinking=false).
 //   • SiliconFlow: «The Rate Limits for free models are fixed» — чат
 //     RPM 1000–10000, TPM 50 000–5 000 000; тир L0 (старт): RPM 1000 / TPM
 //     40 000. Суточные TPD/RPD free-моделей в доках НЕ публикуются —
@@ -36,8 +42,9 @@ namespace AiJobSearchBy.Services.Ai;
 //     безлимит; сервер не поднят = Busy с причиной (фолбэк цепи, не краш).
 //   • LM Studio / Bionic: тот же контракт на http://localhost:1234/v1/.
 //
-// ДЕФОЛТНЫЕ МОДЕЛИ — НЕ ЖИВОЙ СНИМОК каталога (регистрация владельца
-// ещё идёт). Каталоги ротируются: ProbeModelsAsync на старте сверяет модель
+// ДЕФОЛТНЫЕ МОДЕЛИ — ModelScope и SiliconFlow подтверждены живыми тестами
+// владельца (2026-10-21: «pong» на .ai и 80 моделей каталога). Каталоги
+// ротируются: ProbeModelsAsync на старте сверяет модель
 // с живым GET models и кричит при расхождении; точный id ставится env'ом
 // AIJOB_MODELSCOPE_MODEL / AIJOB_SILICONFLOW_MODEL / AIJOB_OLLAMA_MODEL.
 //
@@ -50,8 +57,10 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
     // --- Профили (решение владельца 2026-10-21: ModelScope и SiliconFlow —
     //     в цепь; ollama-local и lm-studio — локальные ступени «для тех, у кого
     //     есть GPU»). Капы — из карточки §2–§4, без выдумок. ---
-    public const string ModelScopeBaseUrl = "https://api-inference.modelscope.cn/v1/";
-    public const string ModelScopeDefaultModel = "Qwen/Qwen3-32B";
+    public const string ModelScopeBaseUrl = "https://api-inference.modelscope.ai/v1/";
+    // Живой тест владельца 2026-10-21: «pong» на .ai; мелкие модели в каталоге .ai
+    // отсутствуют (400 «has no provider supported»), Qwen3-32B не проверена.
+    public const string ModelScopeDefaultModel = "Qwen/Qwen3.5-397B-A17B";
     public const long ModelScopeDailyRequestCap = 2000; // на аккаунт, все модели суммарно
 
     public const string SiliconFlowBaseUrl = "https://api.siliconflow.com/v1/";
@@ -74,12 +83,34 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
     private readonly AiBudgetLedger? _reqLedger;   // капа в ЗАПРОСАХ/сутки (ModelScope)
     private readonly AiBudgetLedger? _tokenLedger; // капа в ТОКЕНАХ/сутки (если задана)
     private readonly SemaphoreSlim? _serialGate;   // одновременные запросы (ModelScope: 1)
+    private readonly bool _disableThinking;        // гибридным Qwen шлём enable_thinking=false (иначе 504 шлюза)
+
+    // STATE: имена полей — как в анонимном типе (без camelCase-политики);
+    // null-члены не сериализуются — enable_thinking уходит только при выключенном thinking.
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     public bool IsKeyMissing { get; }
+
+    /// <summary>Локальный провайдер (ollama/lm-studio): без ключа, без сетевых проб на старте.</summary>
+    public bool IsLocal => _isLocal;
+
+    // WP-U0: модель для карточки дашборда (морда вчерне); IAiChatProvider
+    // сознательно не расширяли — сурфейс только у конкретных типов.
+    public string Model => _model;
 
     /// <param name="dailyRequestCap">Дневная капа запросов (ModelScope: 2000); null — безлимит.</param>
     /// <param name="dailyTokenCap">Дневная капа токенов, если публична; null — не ведём.</param>
     /// <param name="maxConcurrent">Одновременных запросов (ModelScope: 1); null — без сериализации.</param>
     /// <param name="requireApiKey">Облачные — true (пустой ключ = Busy без HTTP), локальные — false.</param>
+    /// <param name="disableThinking">true — в payload уходит enable_thinking=false:
+    /// гибридные Qwen на ModelScope/SiliconFlow без него «думают» дольше таймаута
+    /// шлюза (504 Gateway Timeout, эмпирика 2026-10-21). false — поле не отправляется.</param>
+    // LIFECYCLE: экземпляры — синглтоны DI (CompositionRoot); лимит-регистры
+    //        персистятся в state/*.json
+    // THREAD: регистры под своими _gate; _serialGate сериализует вызовы (ModelScope: 1 одновременный)
     public OpenAiCompatibleProvider(
         ILogService log,
         string name,
@@ -96,6 +127,7 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
         string? requestLedgerPath = null,
         string? tokenLedgerPath = null,
         string? signupHint = null,
+        bool disableThinking = false,
         HttpClient? httpClient = null)
     {
         _log = log;
@@ -133,21 +165,24 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
         _reqLedger = dailyRequestCap is null ? null : new AiBudgetLedger(dailyRequestCap.Value, requestLedgerPath, log);
         _tokenLedger = dailyTokenCap is null ? null : new AiBudgetLedger(dailyTokenCap.Value, tokenLedgerPath, log);
         _serialGate = maxConcurrent is null ? null : new SemaphoreSlim(maxConcurrent.Value, maxConcurrent.Value);
+        _disableThinking = disableThinking;
 
         _log.Log($"[{Name}] провайдер готов: base={_baseLabel}, model={_model}, " +
                  $"капа: {(dailyRequestCap is null ? "запросы без лимита" : $"{dailyRequestCap:N0} запр/сутки")}" +
                  $"{(dailyTokenCap is null ? "" : $" / {dailyTokenCap:N0} ток/сутки")}, " +
                  $"ключ: {(IsKeyMissing ? "НЕТ (вне цепи)" : _isLocal ? "не требуется" : "токен")}" +
                  $"{(maxConcurrent is null ? "" : $", одновременных: {maxConcurrent}")}, " +
-                 $"регистры: {(requestLedgerPath ?? tokenLedgerPath ?? "в памяти процесса")}");
+                 $"регистры: {(requestLedgerPath ?? tokenLedgerPath ?? "в памяти процесса")}" +
+                 (_disableThinking ? ", thinking: выключен (enable_thinking=false)" : ""));
     }
 
     public long? RemainingDailyTokens() => _tokenLedger?.Remaining;
 
-    // FLOW: ключ/регистры на месте? -> фейл-фаст Busy (без HTTP); chat/completions под
+    // FLOW: TaskRoutingPolicy -> CompleteAsync -> AiChatResult (расход уходит в ResponseCostCounter оркестратора);
+    //        ключ/регистры на месте? -> фейл-фаст Busy (без HTTP); chat/completions под
     //        _serialGate; 429/402 = Busy (фолбэк цепи); локальный сервер не отвечает = Busy;
     //        прочие не-2xx = исключение наружу; usage -> регистры -> AiChatResult
-    // STATE: единственные мутации — расход в _reqLedger/_tokenLedger (под их _gate)
+    // STATE: единственные мутации — расход в _reqLedger/_tokenLedger (под их _gate); _serialGate — вход/выход
     public async Task<AiChatResult> CompleteAsync(AiChatRequest request, CancellationToken ct = default)
     {
         if (IsKeyMissing)
@@ -188,6 +223,7 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
         }
     }
 
+    // FLOW: payload (enable_thinking по профилю) -> POST chat/completions -> разбор choices/usage
     private async Task<AiChatResult> SendChatAsync(AiChatRequest request, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -204,8 +240,12 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
                 new { role = "user", content = request.UserPrompt }
             },
             max_tokens = request.MaxTokens,
-            temperature = request.Temperature
-        });
+            temperature = request.Temperature,
+            // Гибридные Qwen (ModelScope .ai): thinking по умолчанию жжёт таймаут шлюза
+            // (504, эмпирика 2026-10-21). null — поле не пишется вовсе (локальные
+            // серверы лишний параметр не видят).
+            enable_thinking = _disableThinking ? (bool?)false : null
+        }, JsonOpts);
 
         using var req = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
         if (_apiKey.Length > 0)

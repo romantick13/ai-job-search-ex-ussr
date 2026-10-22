@@ -1,23 +1,320 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:AiJobSearchBy.ViewModels"
+        xmlns:uic="clr-namespace:AiJobSearchBy.Controls"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        d:DesignWidth="720" d:DesignHeight="480"
+        d:DesignWidth="950" d:DesignHeight="900"
         x:Class="AiJobSearchBy.MainWindow"
         x:DataType="vm:MainViewModel"
-        Title="ai-job-search-by"
-        Width="720" Height="480">
+        Title="ai-job-search-by — дашборд"
+        Width="950" Height="1800"
+        MinWidth="780" MinHeight="900"
+        WindowStartupLocation="CenterScreen"
+        Background="#0A1A14"
+        FontFamily="Segoe UI, Noto Sans, sans-serif">
 
-  <!-- Грабли (RFC-001 §2): StackPanel — Margin, не Padding;
-       длинный текст — в ScrollViewer. -->
-  <ScrollViewer>
-    <StackPanel Margin="24" Spacing="12">
-      <TextBlock Text="{Binding Greeting}"
-                 TextWrapping="Wrap"
-                 FontSize="16" />
+  <!-- WP-U1 «рабочее место» (решение владельца 2026-10-22): окно 950x1800 по
+       центру; чекбоксы сайтов; окно перебора вакансий; резюме + адаптированное
+       с кнопкой «Отправить» (PDF + браузер + база); история откликов с
+       модальным просмотром; протокол во всю ширину с изменяемой высотой
+       (GridSplitter делит две гибкие строки: рабочая зона 3* / протокол 1*).
+       Стиль — Emerald Crystal донора UniD: тёмный изумруд #0A1A14, стекло
+       #1A2E26, акцент #50FFB0. Выделение строк ListBox — палитра, гармони-
+       рующая с зелёным (требование владельца: синий системный акцент не в
+       тему): выборка #174C37, ховер #12241D, тёмный текст читается.
+       Грабли (RFC-001 §2): StackPanel — Margin, не Padding; TabControl
+       запрещён (architecture.md §4); длинный текст — в ScrollViewer. -->
+  <Window.Resources>
+    <SolidColorBrush x:Key="GlassBrush" Color="#E61A2E26"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#50FFB0"/>
+    <SolidColorBrush x:Key="DimBrush" Color="#8FB8A8"/>
+    <SolidColorBrush x:Key="CardEdge" Color="#243D34"/>
+  </Window.Resources>
+
+  <Window.Styles>
+    <!-- стеклянная карточка -->
+    <Style Selector="Border.glass">
+      <Setter Property="Background" Value="{StaticResource GlassBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource CardEdge}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="14"/>
+      <Setter Property="BoxShadow" Value="5 5 15 0 #050C0A, -5 -5 15 0 #243D34"/>
+    </Style>
+    <!-- заголовки панелей -->
+    <Style Selector="TextBlock.panel-title">
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+    </Style>
+    <!-- лампа статуса: серая базовая, зелёная — в цепи -->
+    <Style Selector="Ellipse.lamp">
+      <Setter Property="Fill" Value="#5C6E66"/>
+    </Style>
+    <Style Selector="Ellipse.lamp.on">
+      <Setter Property="Fill" Value="#50FFB0"/>
+    </Style>
+
+    <!-- палитра выделения ListBox: гармония с изумрудом (вместо системного
+         синего Fluent). Смена фона — на шаблонном ContentPresenter, это
+         перебивает ThemeDictionaries темы. -->
+    <Style Selector="ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#12241D"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#174C37"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1B5A40"/>
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,3*,6,1*" Margin="12">
+
+    <!-- искрящая полоса (донор UniD): живёт, когда идёт поиск/адаптация -->
+    <uic:SparklingProgressBar Grid.Row="0"
+                              IsIndeterminate="{Binding IsBusy}" Height="6"
+                              Foreground="{StaticResource AccentBrush}"
+                              TrailEndBrush="#B350FFB0"
+                              HorizontalAlignment="Stretch"/>
+
+    <!-- ======== шапка: заголовок + шестерёнка настроек ======== -->
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="2,10,0,4">
+      <StackPanel Grid.Column="0">
+        <TextBlock Text="ai-job-search-by" FontSize="20" FontWeight="Bold"/>
+        <TextBlock Text="{Binding Greeting}"
+                   TextWrapping="Wrap" FontSize="11"
+                   Foreground="{StaticResource DimBrush}" Margin="0,2,8,0"/>
+      </StackPanel>
+      <Button Grid.Column="1" x:Name="SettingsButton"
+              Command="{Binding OpenSettingsCommand}"
+              Width="38" Height="38" CornerRadius="19"
+              Background="{StaticResource GlassBrush}"
+              BorderBrush="{StaticResource CardEdge}" BorderThickness="1"
+              FontSize="16" Foreground="{StaticResource DimBrush}"
+              VerticalAlignment="Top"
+              ToolTip.Tip="Настройки: ключи провайдеров, папка откликов">
+        <PathIcon Width="16" Height="16"
+                  Data="M19.14,12.94C19.18,12.64 19.2,12.33 19.2,12C19.2,11.68 19.18,11.36 19.14,11.06L21.16,9.48C21.34,9.34 21.39,9.07 21.28,8.87L19.36,5.55C19.24,5.33 19,5.25 18.81,5.33L16.38,6.29C15.88,5.91 15.35,5.59 14.76,5.35L14.4,2.79C14.36,2.57 14.16,2.4 13.92,2.4H10.08C9.84,2.4 9.65,2.57 9.61,2.79L9.25,5.35C8.66,5.59 8.12,5.92 7.63,6.29L5.19,5.33C5,5.25 4.76,5.33 4.64,5.55L2.72,8.87C2.61,9.08 2.66,9.34 2.85,9.48L4.86,11.06C4.82,11.36 4.8,11.69 4.8,12C4.8,12.32 4.82,12.64 4.86,12.94L2.84,14.52C2.66,14.66 2.61,14.93 2.72,15.13L4.64,18.45C4.76,18.67 5,18.75 5.19,18.67L7.63,17.71C8.12,18.09 8.66,18.41 9.25,18.65L9.61,21.21C9.65,21.43 9.84,21.6 10.08,21.6H13.92C14.16,21.6 14.36,21.43 14.4,21.21L14.76,18.65C15.35,18.41 15.89,18.09 16.38,17.71L18.81,18.67C19,18.75 19.24,18.67 19.36,18.45L21.28,15.13C21.39,14.93 21.34,14.66 21.16,14.52L19.14,12.94M12,15.6C10.02,15.6 8.4,13.98 8.4,12C8.4,10.02 10.02,8.4 12,8.4C13.98,8.4 15.6,10.02 15.6,12C15.6,13.98 13.98,15.6 12,15.6Z"/>
+      </Button>
+    </Grid>
+
+    <!-- ======== цепь ИИ-провайдеров ======== -->
+    <StackPanel Grid.Row="2" Margin="2,2,0,0">
+      <TextBlock Text="Цепь ИИ-провайдеров" Classes="panel-title"/>
+      <ItemsControl ItemsSource="{Binding Providers}" Margin="0,6,0,0">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ProviderStatusRow">
+            <Border Classes="glass" Width="212" Padding="12,10" Margin="0,0,8,8">
+              <StackPanel Spacing="3">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Ellipse Classes.lamp="{Binding InChain}"
+                           Width="10" Height="10"
+                           VerticalAlignment="Center"/>
+                  <TextBlock Text="{Binding Name}"
+                             FontWeight="SemiBold" FontSize="14"/>
+                </StackPanel>
+                <TextBlock Text="{Binding Model}"
+                           FontSize="11"
+                           FontFamily="Consolas, 'DejaVu Sans Mono', monospace"
+                           Foreground="{StaticResource AccentBrush}"
+                           TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding KeyNote}"
+                           FontSize="11"
+                           Foreground="{StaticResource DimBrush}"
+                           TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
     </StackPanel>
-  </ScrollViewer>
+
+    <!-- ======== сайты поиска (чекбоксы) + строка запроса ======== -->
+    <StackPanel Grid.Row="3" Margin="2,8,0,0">
+      <TextBlock Text="Сайты поиска" Classes="panel-title"/>
+      <ItemsControl ItemsSource="{Binding Sites}" Margin="0,6,0,0">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:SiteToggleRow">
+            <CheckBox Content="{Binding DisplayName}"
+                      IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                      Margin="0,0,14,6" FontSize="12.5"/>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2,0,0">
+        <TextBox Grid.Column="0"
+                 Text="{Binding SearchQuery}"
+                 PlaceholderText="запрос: должность / ключевые слова"
+                 FontSize="13"/>
+        <Button Grid.Column="1" Margin="8,0,0,0"
+                Command="{Binding SearchCommand}"
+                Content="Искать" FontWeight="SemiBold"/>
+        <Button Grid.Column="2" Margin="8,0,0,0"
+                Command="{Binding SearchCancelCommand}"
+                Content="Отмена" IsVisible="{Binding IsSearching}"/>
+      </Grid>
+      <TextBlock Text="{Binding SearchStatus}" FontSize="11"
+                 Foreground="{StaticResource DimBrush}" Margin="2,5,0,0"/>
+    </StackPanel>
+
+    <!-- ======== рабочая зона: вакансии | резюме, ниже — история откликов.
+              Обёрнута во внутренний Grid, чтобы GridSplitter снаружи делил
+              ровно две гибкие строки (рабочая зона 3* / протокол 1*). ======= -->
+    <Grid Grid.Row="4" RowDefinitions="*,12,Auto">
+
+      <Grid Row="0" ColumnDefinitions="*,12,*">
+
+        <!-- окно перебора вакансий -->
+        <Border Grid.Column="0" Classes="glass" Padding="12">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="Вакансии (перебор)" Classes="panel-title"
+                       Margin="2,0,0,6"/>
+            <TextBlock DockPanel.Dock="Top"
+                       Text="Пусто. Отметь сайты, задай запрос и нажми «Искать» — строки пойдут сюда."
+                       TextWrapping="Wrap" FontSize="11.5"
+                       Foreground="{StaticResource DimBrush}"
+                       Margin="2,0,0,6"
+                       IsVisible="{Binding !HasVacancies}"/>
+            <ListBox x:Name="VacancyList"
+                     ItemsSource="{Binding Vacancies}"
+                     SelectionMode="Single"
+                     Background="Transparent" BorderThickness="0">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:VacancyRow">
+                  <StackPanel Margin="2,4" Spacing="2">
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="12.5" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Meta}" FontSize="11"
+                               Foreground="{StaticResource DimBrush}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Footer}" FontSize="10"
+                               Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </DockPanel>
+        </Border>
+
+        <!-- резюме + адаптированное -->
+        <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto,3*,Auto,Auto">
+          <Border Grid.Row="0" Classes="glass" Padding="10,8">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="Моё резюме (база)" Classes="panel-title" Margin="2,0,0,0"/>
+              <Button Grid.Column="1" Command="{Binding SaveResumeCommand}"
+                      Content="Сохранить резюме" FontSize="11" Padding="10,3"/>
+            </Grid>
+          </Border>
+          <Border Grid.Row="1" Classes="glass" Padding="8" Margin="0,6,0,0">
+            <TextBox Text="{Binding ResumeText}"
+                     AcceptsReturn="True" TextWrapping="Wrap"
+                     FontSize="12" Background="Transparent" BorderThickness="0"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+          </Border>
+
+          <Border Grid.Row="2" Classes="glass" Padding="10,8" Margin="0,10,0,0">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+              <TextBlock Text="Адаптированное резюме (под вакансию)" Classes="panel-title" Margin="2,0,0,0"/>
+              <Button Grid.Column="1" Command="{Binding SendCommand}"
+                      Content="Отправить" FontWeight="SemiBold" Padding="14,4"/>
+              <Button Grid.Column="2" Command="{Binding OpenOutboxCommand}"
+                      Content="Папка откликов" FontSize="11" Padding="10,3" Margin="8,0,0,0"/>
+            </Grid>
+          </Border>
+          <Border Grid.Row="3" Classes="glass" Padding="8" Margin="0,6,0,0">
+            <TextBox Text="{Binding AdaptedResumeText}"
+                     IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                     FontSize="12" Background="Transparent" BorderThickness="0"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+          </Border>
+          <TextBlock Grid.Row="4" Text="{Binding AdaptedMeta}" FontSize="10.5"
+                     Foreground="{StaticResource AccentBrush}" Margin="4,5,0,0"
+                     TextWrapping="Wrap"/>
+          <TextBlock Grid.Row="5" FontSize="10.5" Margin="4,3,0,0" TextWrapping="Wrap"
+                     Foreground="{StaticResource DimBrush}"
+                     Text="Автоотправка на порталах требует личной сессии и капчи — «Отправить» сохраняет PDF (работодатель_дата-время) в папку откликов, пишет отклик в базу и открывает вакансию в браузере: выбери файл на сайте и отправь."/>
+        </Grid>
+      </Grid>
+
+      <!-- история откликов (внутри рабочей зоны, над разделителем) -->
+      <Border Grid.Row="2" Classes="glass" Padding="12" Margin="0,0,0,0">
+        <DockPanel>
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="2,0,0,6">
+            <TextBlock Text="История откликов (клик — вариант резюме, который отправляли)" Classes="panel-title"/>
+            <Button Grid.Column="1" Command="{Binding ReindexPdfCommand}"
+                    Content="⟳ PDF" FontSize="11" Padding="8,2"
+                    ToolTip.Tip="Переиндексировать PDF папки откликов (векторы — локальный эмбеддер)"/>
+            <Button Grid.Column="2" Command="{Binding OpenOutboxCommand}"
+                    Content="Папка" FontSize="11" Padding="8,2" Margin="6,0,0,0"/>
+          </Grid>
+          <ListBox x:Name="HistoryList"
+                   ItemsSource="{Binding History}"
+                   SelectionMode="Single"
+                   Background="Transparent" BorderThickness="0"
+                   MaxHeight="190">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ApplicationRow">
+                <Grid ColumnDefinitions="*,Auto" Margin="2,3">
+                  <StackPanel Spacing="1">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="{Binding Employer}" FontWeight="SemiBold" FontSize="12"/>
+                      <TextBlock Text="{Binding SentDisplay}" FontSize="11.5"
+                                 Foreground="{StaticResource AccentBrush}"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Title}" FontSize="11"
+                               Foreground="{StaticResource DimBrush}" TextWrapping="Wrap"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                    <TextBlock Text="{Binding PdfName}" FontSize="10.5" TextTrimming="CharacterEllipsis"
+                               FontFamily="Consolas, 'DejaVu Sans Mono', monospace"
+                               Foreground="{StaticResource DimBrush}" MaxWidth="220"/>
+                    <TextBlock Text="PDF на диске" FontSize="9"
+                               Foreground="{StaticResource DimBrush}"
+                               IsVisible="{Binding PdfExists}"/>
+                    <TextBlock Text="PDF удалён с диска" FontSize="9"
+                               Foreground="#FF9E7A"
+                               IsVisible="{Binding !PdfExists}"/>
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+    </Grid>
+
+    <!-- ======== разделитель высоты протокола (требование владельца) ======== -->
+    <GridSplitter Grid.Row="5" Height="6" HorizontalAlignment="Stretch" Margin="2,0,0,0"
+                  ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
+                  Background="#0F211A"/>
+
+    <!-- ======== живой протокол: во всю ширину, высота — за разделитель ======== -->
+    <Border Grid.Row="6" Classes="glass" Padding="10" Margin="2,0,0,0">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="Живой протокол"
+                   Classes="panel-title" Margin="2,0,0,6"/>
+        <ListBox x:Name="ProtocolList"
+                 ItemsSource="{Binding LogFeed}"
+                 FontFamily="Consolas, 'DejaVu Sans Mono', monospace"
+                 FontSize="11.5"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+      </DockPanel>
+    </Border>
+  </Grid>
 
 </Window>

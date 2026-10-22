@@ -1,7 +1,3 @@
-// FLOW: оркестратор отклика: BeginResponse -> Record на каждую стадию -> EndResponse -> [cost] в протокол (НИ-5)
-// LIFECYCLE: синглтон DI; гранд-итоги «за процесс» копятся от старта, стадии — сброс на каждый отклик
-// STATE: список стадий текущего отклика + гранд-итоги токенов/запросов
-// THREAD: все обращения к состоянию — под _gate
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -36,10 +32,14 @@ public sealed class ResponseCostCounter
     private long _grandTokens;
     private long _grandRequests;
 
+    // LIFECYCLE: синглтон DI; гранд-итоги «за процесс» копятся от старта,
+    // стадии — сброс на каждый отклик (BeginResponse)
+    // THREAD: все обращения к состоянию — под _gate
     public ResponseCostCounter(ILogService log) => _log = log;
 
     /// <summary>Начало отклика: копилки стадий очищаются, номер фиксируется.</summary>
-    // FLOW: очистка копилок стадий + фиксация номера отклика (всё под _gate)
+    // FLOW: цикл отклика: BeginResponse -> Record на каждую стадию -> EndResponse -> [cost] в протокол (НИ-5);
+    //        здесь: очистка копилок стадий + фиксация номера отклика (всё под _gate)
     public void BeginResponse(int responseNumber)
     {
         lock (_gate)

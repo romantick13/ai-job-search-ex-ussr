@@ -1,0 +1,118 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:AiJobSearchBy.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="560" d:DesignHeight="420"
+        x:Class="AiJobSearchBy.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="Настройки — ai-job-search-by"
+        Width="560" MinWidth="480"
+        SizeToContent="Height"
+        MaxHeight="760"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#0A1A14"
+        FontFamily="Segoe UI, Noto Sans, sans-serif">
+
+  <!-- WP-U1: отдельное МОДАЛЬНОЕ окно настроек (решение владельца: шестерёнка
+       сверху справа -> настройки). Ключи пишутся в local.json атомарно
+       (ConfigService.UpdateAiKey, маска в протоколе); применяются после
+       перезапуска приложения — честная плашка внизу. Стиль — Emerald Crystal. -->
+  <Window.Resources>
+    <SolidColorBrush x:Key="GlassBrush" Color="#E61A2E26"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#50FFB0"/>
+    <SolidColorBrush x:Key="DimBrush" Color="#8FB8A8"/>
+    <SolidColorBrush x:Key="CardEdge" Color="#243D34"/>
+  </Window.Resources>
+
+  <Window.Styles>
+    <Style Selector="Border.glass">
+      <Setter Property="Background" Value="{StaticResource GlassBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource CardEdge}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="14"/>
+      <Setter Property="BoxShadow" Value="5 5 15 0 #050C0A, -5 -5 15 0 #243D34"/>
+    </Style>
+    <Style Selector="TextBlock.panel-title">
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+    </Style>
+    <Style Selector="TextBlock.hint">
+      <Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="Foreground" Value="{StaticResource DimBrush}"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+  </Window.Styles>
+
+  <StackPanel Margin="16" Spacing="10">
+
+    <StackPanel Spacing="2">
+      <TextBlock Text="Настройки" FontSize="18" FontWeight="Bold"/>
+      <TextBlock Classes="hint"
+                 Text="Ключи лежат в local.json — файл вне репо (%APPDATA%\ai-job-search-by\), в git не попадает. Вступают в силу после перезапуска приложения."/>
+    </StackPanel>
+
+    <Border Classes="glass" Padding="14">
+      <StackPanel Spacing="10">
+        <TextBlock Text="Ключи провайдеров" Classes="panel-title"/>
+        <ItemsControl ItemsSource="{Binding Rows}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:SettingsRow">
+              <StackPanel Spacing="3" Margin="0,0,0,8">
+                <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding ApiKey}" PlaceholderText="API-ключ"
+                         FontFamily="Consolas, 'DejaVu Sans Mono', monospace" FontSize="11.5"/>
+                <TextBlock Classes="hint" Text="{Binding Hint}"/>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Border>
+
+    <Border Classes="glass" Padding="14">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Локальная векторизация (эмбеддер)" Classes="panel-title"/>
+        <StackPanel Spacing="3">
+          <TextBlock Text="Адрес рантайма (OpenAI-совместимый /v1)" FontSize="12"/>
+          <TextBox Text="{Binding EmbeddingsBaseUrl}" FontSize="11.5"
+                   FontFamily="Consolas, 'DejaVu Sans Mono', monospace"
+                   PlaceholderText="http://127.0.0.1:11434/v1"/>
+        </StackPanel>
+        <StackPanel Spacing="3">
+          <TextBlock Text="Модель эмбеддингов" FontSize="12"/>
+          <TextBox Text="{Binding EmbeddingsModel}" FontSize="11.5"
+                   FontFamily="Consolas, 'DejaVu Sans Mono', monospace"
+                   PlaceholderText="qwen3-embedding:0.6b"/>
+        </StackPanel>
+        <TextBlock Classes="hint"
+                   Text="Пустое поле = дефолт Ollama. Модель — Qwen3-Embedding-0.6B (Apache-2.0). Ollama: ollama pull qwen3-embedding:0.6b; LM Studio — http://127.0.0.1:1234/v1; llama-server — http://127.0.0.1:8080/v1. Векторы не обязательны: без рантайма PDF, тексты и история работают."/>
+      </StackPanel>
+    </Border>
+
+    <Border Classes="glass" Padding="14">
+      <StackPanel Spacing="6">
+        <TextBlock Text="Папка откликов (PDF)" Classes="panel-title"/>
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBox Text="{Binding OutboxPath}" FontSize="11.5"
+                   PlaceholderText="Документы\ai-job-search-by"/>
+          <Button Grid.Column="1" x:Name="PickFolderButton"
+                  Content="Выбрать…" Margin="8,0,0,0" FontSize="11.5"/>
+        </Grid>
+        <TextBlock Classes="hint"
+                   Text="Сюда складываются PDF отправленных резюме (имя: работодатель_дата-время). Первый запуск проиндексирует содержимое — векторы строит локальный эмбеддер, если рантайм запущен."/>
+      </StackPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="*,Auto,Auto">
+      <Button Grid.Column="1" Command="{Binding DoneCommand}" Content="Закрыть без сохранения" FontSize="12"/>
+      <Button Grid.Column="2" Command="{Binding SaveCommand}" Content="Сохранить" FontWeight="SemiBold"
+              Margin="8,0,0,0"/>
+    </Grid>
+
+  </StackPanel>
+
+</Window>

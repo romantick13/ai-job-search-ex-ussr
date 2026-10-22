@@ -1,7 +1,3 @@
-// FLOW: TaskRoutingPolicy -> CompleteAsync -> AiChatResult; расход уходит в ResponseCostCounter оркестратора
-// LIFECYCLE: реализации — синглтоны DI (CompositionRoot); сам интерфейс состояния не имеет
-// STATE: нет; RemainingDailyTokens() — только чтение остатка дневного бюджета провайдера
-// THREAD: реализации обязаны быть потокобезопасны — общий ILogService (НИ-5) один на процесс
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -25,6 +21,7 @@ public interface IAiChatProvider
     /// Остаток дневного токен-бюджета по данным провайдера/локального регистра;
     /// null — провайдер остаток не отдаёт.
     /// </summary>
+    // STATE: только чтение остатка дневного бюджета провайдера
     long? RemainingDailyTokens();
 
     /// <summary>
@@ -32,5 +29,8 @@ public interface IAiChatProvider
     /// AiProviderBusyException (цепь переходит к следующему); прочие сбои —
     /// обычные исключения, каждый исход кричит в протокол (НИ-1).
     /// </summary>
+    // FLOW: TaskRoutingPolicy -> CompleteAsync -> AiChatResult; расход уходит в ResponseCostCounter оркестратора
+    // LIFECYCLE: реализации — синглтоны DI (CompositionRoot)
+    // THREAD: реализации обязаны быть потокобезопасны — общий ILogService (НИ-5) один на процесс
     Task<AiChatResult> CompleteAsync(AiChatRequest request, CancellationToken ct = default);
 }

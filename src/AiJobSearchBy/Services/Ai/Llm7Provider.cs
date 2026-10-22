@@ -1,9 +1,3 @@
-// FLOW: DI -> ProbeModelsAsync (старт цепи) -> CompleteAsync -> AiChatResult; 429/402 и пустой
-//        регистр -> AiProviderBusyException -> фолбэк TaskRoutingPolicy; каждый исход — в ILogService
-// LIFECYCLE: синглтон DI; свой HttpClient (base api.llm7.io/v1/, таймаут 60с); регистр бюджета
-//        персистится в state/llm7-budget.json (см. CompositionRoot)
-// STATE: AiBudgetLedger — сутки/потрачено (ротация в полночь); IsAnonymous — по AIJOB_LLM7_API_KEY
-// THREAD: AiBudgetLedger под _gate; HttpClient потокобезопасен; вызовы с любого потока
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -40,23 +34,30 @@ namespace AiJobSearchBy.Services.Ai;
 // (docs.llm7.io/guides/models-api, tier=turbo — доступно free-токену).
 //
 // Конфиг: AIJOB_LLM7_API_KEY (пусто → анонимно), AIJOB_LLM7_MODEL
-// (по умолчанию DeepSeek-V4-Flash-0731 — сильнейшая живая turbo-модель на
-// 2026-10-21; каталог ротируется, проба на старте громко ловит ротации).
+// (дефолт gpt-oss:20b: живой прогон владельца 2026-10-21 — прежний дефолт
+// DeepSeek-V4-Flash-0731 к моменту запроса из каталога РОТИРОВАЛСЯ,
+// gpt-oss:20b turbo-тира отработал; каталог ротируется, проба на старте
+// громко ловит ротации).
 // ============================================================================
 
 public sealed class Llm7Provider : IAiChatProvider
 {
     public const string DefaultBaseUrl = "https://api.llm7.io/v1/";
-    // Живой каталог turbo-тира снят GET /v1/models 2026-10-21: DeepSeek-V4-Flash-0731,
-    // GLM-5.3-Flash, codestral-latest, gpt-oss:20b, minimax-m2.7,
-    // mistral-Nemo-Instruct-2407, nemotron-3-nano:30b. Каталог РОТИРУЕТСЯ
-    // (gpt-oss-120b/gemma из списка itsfree.ai в каталоге уже нет) —
-    // потому ProbeModelsAsync на старте и громкая ошибка при отсутствии модели.
-    public const string DefaultModel = "DeepSeek-V4-Flash-0731";
+    // Живой каталог turbo-тира снят GET /v1/models 2026-10-21: codestral-latest,
+    // gpt-oss:20b, minimax-m2.7, mistral-Nemo-Instruct-2407, nemotron-3-nano:30b
+    // (DeepSeek-V4-Flash-0731 в момент живого прогона владельца из каталога
+    // исчез — прежний дефолт протух, гейт: тест DefaultModel_Is_Live_Turbo_Model).
+    // Каталог РОТИРУЕТСЯ (gpt-oss-120b/gemma из списка itsfree.ai в каталоге
+    // уже нет) — потому ProbeModelsAsync на старте и громкая ошибка при
+    // отсутствии модели.
+    public const string DefaultModel = "gpt-oss:20b";
     public const long DefaultDailyTokenCap = 100_000;
     public const string AnonymousKey = "unused"; // ключ-заглушка анонимного доступа
 
     public string Name => "llm7";
+    // WP-U0: модель для карточки дашборда (морда вчерне); IAiChatProvider
+    // сознательно не расширяли — сурфейс только у конкретных типов.
+    public string Model => _model;
     // Turbo-тир — модели средней величины: для писем достаточно, для резюме — фолбэк.
     public int QualityRank => 3;
 
@@ -69,6 +70,10 @@ public sealed class Llm7Provider : IAiChatProvider
     private readonly AiBudgetLedger _ledger;
     public bool IsAnonymous { get; }
 
+    // LIFECYCLE: синглтон DI; свой HttpClient (base api.llm7.io/v1/, таймаут 60с); регистр бюджета
+    //        персистится в state/llm7-budget.json (см. CompositionRoot)
+    // STATE: AiBudgetLedger — сутки/потрачено (ротация в полночь); IsAnonymous — по AIJOB_LLM7_API_KEY
+    // THREAD: AiBudgetLedger под _gate; HttpClient потокобезопасен; вызовы с любого потока
     public Llm7Provider(
         ILogService log,
         HttpClient? httpClient = null,
@@ -226,7 +231,8 @@ public sealed class Llm7Provider : IAiChatProvider
     /// протокол. Падение пробы не роняет старт (вспомогательная, НИ-1/НИ-3).
     /// Возвращает true, если модель найдена в каталоге.
     /// </summary>
-    // FLOW: GET models -> каталог в протокол (turbo-тир) -> модель в каталоге? ; падение пробы = WARN, не краш (НИ-3)
+    // FLOW: старт цепи: GET models -> каталог в протокол (turbo-тир) -> модель в каталоге?;
+    //        падение пробы = WARN, не краш (НИ-3)
     public async Task<bool> ProbeModelsAsync(CancellationToken ct = default)
     {
         try
@@ -289,6 +295,8 @@ public sealed class AiBudgetLedger
     public long Remaining => Math.Max(0, Cap - UsedToday);
     public bool IsExhausted { get { lock (_gate) { RollDay(); return UsedToday >= Cap; } } }
 
+    // STATE: сутки/потрачено, ротация в полночь (RollDay); капа фиксируется на старте
+    // THREAD: всё состояние под _gate; Load/Save вызываются из-под того же замка
     public AiBudgetLedger(long dailyCap, string? filePath, ILogService log)
     {
         Cap = dailyCap;
