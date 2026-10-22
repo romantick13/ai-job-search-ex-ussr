@@ -17,6 +17,10 @@ namespace AiJobSearchBy.Tests.Ai;
 // (исчерпание до запроса + персистентность между процессами).
 // ============================================================================
 
+// FLOW: тесты -> Llm7Provider поверх фейкового HttpMessageHandler (без сети) -> разбор/лимиты/регистр
+// LIFECYCLE: каждый тест — свой tmp-каталог протокола и свой StubHandler
+// STATE: StubHandler фиксирует вызовы/заголовки; эхо консоли выключено
+// THREAD: однопоточные тесты; один конкурентный сценарий — фейл-фаст регистра
 public sealed class Llm7ProviderTests : IDisposable
 {
     private readonly string _dir = LogServiceTests.TempLogDir();
@@ -57,6 +61,16 @@ public sealed class Llm7ProviderTests : IDisposable
         Assert.Equal(Llm7Provider.DefaultDailyTokenCap - 200, p.RemainingDailyTokens()); // регистр +200
         Assert.Contains("[llm7] OK", log.Logs.Cast<string>().Last(x => x.Contains("[llm7]")));
         Assert.Single(h.RequestsTo("chat/completions"));
+    }
+
+    [Fact]
+    public void DefaultModel_Is_Live_Turbo_Model()
+    {
+        // Гейт ротации дефолта (урок 2026-10-21: DeepSeek-V4-Flash-0731 протух
+        // между снятием каталога и живым прогоном; владелец обходил через
+        // AIJOB_LLM7_MODEL=gpt-oss:20b). Если модель снова ротанёт — тест
+        // падает громко, дефолт правим осознанно, не молча.
+        Assert.Equal("gpt-oss:20b", Llm7Provider.DefaultModel);
     }
 
     [Fact]
@@ -147,8 +161,10 @@ public sealed class Llm7ProviderTests : IDisposable
     [Fact]
     public async Task Probe_Models_Reports_Catalog_And_Missing_Model()
     {
+        // Фикстура = снимок живого каталога 2026-10-21; gpt-oss:20b обязан быть:
+        // это дефолт (гейт DefaultModel_Is_Live_Turbo_Model), проба ищет его первой
         var body = """
-            {"object":"list","data":[{"id":"DeepSeek-V4-Flash-0731","tier":"turbo"},{"id":"glm-5.3-flash","tier":"turbo"},{"id":"gpt-5.4","tier":"pro"}]}
+            {"object":"list","data":[{"id":"DeepSeek-V4-Flash-0731","tier":"turbo"},{"id":"glm-5.3-flash","tier":"turbo"},{"id":"gpt-oss:20b","tier":"turbo"},{"id":"gpt-5.4","tier":"pro"}]}
             """;
         var h = new StubHandler(_ => Ok(body));
         var log = Log();

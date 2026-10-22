@@ -400,11 +400,3 @@ the ai-job-search-by contributors: см. [LICENSE-THREEI.md](LICENSE-THREEI.md).
 
 Платных функций не будет: ни подписки, ни телеметрии, ни продажи данных.
 
-Всегда ставь комментарии
-
-```csharp
-// FLOW: ServiceA -> ServiceB — направление данных между сервисами
-// LIFECYCLE: creates ServiceX — где создаётся инстанс
-// STATE: — изменяемое поле/состояние
-// THREAD: — на каком потоке живёт код
-```

@@ -15,6 +15,9 @@ namespace AiJobSearchBy.Tests.Ai;
 // формат строки [cost].
 // ============================================================================
 
+// FLOW: тесты -> TaskRoutingPolicy / LocalMatchScorer / ResponseCostCounter на StubProvider-цепи
+// LIFECYCLE: каждый тест — свой tmp-каталог протокола
+// THREAD: однопоточные тесты
 public sealed class RoutingScorerCostTests : IDisposable
 {
     private readonly string _dir = LogServiceTests.TempLogDir();
@@ -26,6 +29,7 @@ public sealed class RoutingScorerCostTests : IDisposable
 
     private LogService Log() => new(_dir);
 
+    // STATE: StubProvider(name, rank, busy) — сценарии фолбэка и порядков стадий
     private sealed class StubProvider : IAiChatProvider
     {
         public string Name { get; }

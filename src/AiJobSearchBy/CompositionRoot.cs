@@ -93,8 +93,8 @@ internal static class CompositionRoot
                 sp.GetRequiredService<Services.ILogService>()));
 
         // WP-U2 (решение владельца 2026-10-22): ЛОКАЛЬНЫЙ эмбеддер вместо Jina
-        // (NC-лицензия весов + экспортный риск из РБ, проверка 2026-10-22 —
-        // RFC-009 §6). Qwen3-Embedding-0.6B (Apache-2.0) через OpenAI-совместимый
+        // (NC-лицензия весов + экспортный риск из РБ, проверка 2026-10-22).
+        // Qwen3-Embedding-0.6B (Apache-2.0) через OpenAI-совместимый
         // /v1/embeddings: Ollama (дефолт), LM Studio, llama-server — один GGUF.
         // Ключа нет: живость решает самопробник (LocalEmbeddingService).
         // Лестница настроек: env AIJOB_EMBEDDINGS_BASE_URL/MODEL -> local.json

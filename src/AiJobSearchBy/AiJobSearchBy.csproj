@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WP-0 (PLAN.md §6): нулевой каркас. Пины версий — RFC-001 §2, менять
+       только через RFC. QuestPDF/OpenXml/Markdig/PdfPig подключаются на WP-E,
+       не раньше (RFC-001 §4). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AiJobSearchBy</RootNamespace>
+    <AssemblyName>AiJobSearchBy</AssemblyName>
+    <!-- Compiled bindings по умолчанию (RFC-001 §2: x:DataType) -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UI -->
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!-- DB (канон: SQLite + Dapper, без EF) -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+    <PackageReference Include="QuestPDF" Version="2026.8.0" />
+    <!-- Секьюрити-пин транзитива (NU1903, GHSA-2m69-gcr7-jv3q):
+         Microsoft.Data.Sqlite 10.0.10 тянет bundle 2.1.11; поднимаем до
+         последнего 2.x. Пересмотреть при повышении Microsoft.Data.Sqlite. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.14" />
+    <!-- DI (канон: интерфейсы на всё) -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Внутренние типы (CompositionRoot) видны тестам -->
+    <InternalsVisibleTo Include="AiJobSearchBy.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WP-CONFIG (RFC-004 §2.1): шаблон секретов — внедрённый ресурс
+         (паттерн UniD/YoutubeConfigService.ReadEmbeddedDefault: ресурс
+         всегда в сборке, путь искать не нужно). В репо лежит ТОЛЬКО
+         пустой шаблон; юзерский local.json живёт в %APPDATA% и в git
+         не попадает (.gitignore + RepoSecretsGuardTests). -->
+    <EmbeddedResource Include="local.example.json" />
+  </ItemGroup>
+
+</Project>

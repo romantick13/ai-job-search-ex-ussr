@@ -1,6 +1,6 @@
 # .NET DEEP DEPENDENCY GRAPH FOR LLM CONTEXT
 
-- Generated: 2026-10-22 16:56:24
+- Generated: 2026-10-22 18:40:12
 - Builder: dotnet_graph_builder_v8.py
 - Project root: `D:\ai-job-search-by`
 
@@ -10,18 +10,7 @@
 
 ## 0. WARNINGS (review before commit)
 
-- **NS-FOLDER** `src/AiJobSearchBy.Tests/TestSupport/Fakes.cs`: expected "AiJobSearchBy.Tests.TestSupport", actual "AiJobSearchBy.Tests"
-- **NS-FOLDER** `src/AiJobSearchBy.Tests/TestSupport/TestConfigEnv.cs`: expected "AiJobSearchBy.Tests.TestSupport", actual "AiJobSearchBy.Tests"
-- **ORPHAN** `src/Services/ILogService.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Services/Ai/AiChatModels.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Services/Ai/IAiChatProvider.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Services/Ai/Llm7Provider.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Services/Ai/LocalMatchScorer.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Services/Ai/ResponseCostCounter.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Services/Ai/TaskRoutingPolicy.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Tests/Ai/Llm7ProviderTests.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Tests/Ai/RoutingScorerCostTests.cs`: not included in any .csproj (not compiled)
-- **ORPHAN** `src/Tests/Logging/LogServiceTests.cs`: not included in any .csproj (not compiled)
+(No warnings)
 
 ## 1. PROJECT-LEVEL DEPENDENCIES (csproj)
 
@@ -270,6 +259,12 @@
   -> AiJobSearchBy.Services
   -> Xunit
 
+**src/AiJobSearchBy.Tests/Fakes.cs**
+  ns: AiJobSearchBy.Tests
+  -> AiJobSearchBy.Models
+  -> AiJobSearchBy.Portals
+  -> AiJobSearchBy.Services
+
 **src/AiJobSearchBy.Tests/HhByPortalTests.cs**
   ns: AiJobSearchBy.Tests
   -> AiJobSearchBy.Models
@@ -365,6 +360,9 @@
   -> AiJobSearchBy.ViewModels
   -> Xunit
 
+**src/AiJobSearchBy.Tests/TestConfigEnv.cs**
+  ns: AiJobSearchBy.Tests
+
 **src/AiJobSearchBy.Tests/Ai/Llm7ProviderTests.cs**
   ns: AiJobSearchBy.Tests.Ai
   -> AiJobSearchBy.Services
@@ -387,59 +385,6 @@
   -> Xunit
 
 **src/AiJobSearchBy.Tests/Logging/LogServiceTests.cs**
-  ns: AiJobSearchBy.Tests.Logging
-  -> AiJobSearchBy.Services
-  -> Xunit
-
-**src/AiJobSearchBy.Tests/TestSupport/Fakes.cs**
-  ns: AiJobSearchBy.Tests
-  -> AiJobSearchBy.Models
-  -> AiJobSearchBy.Portals
-  -> AiJobSearchBy.Services
-
-**src/AiJobSearchBy.Tests/TestSupport/TestConfigEnv.cs**
-  ns: AiJobSearchBy.Tests
-
-**src/Services/ILogService.cs**
-  ns: AiJobSearchBy.Services
-
-**src/Services/Ai/AiChatModels.cs**
-  ns: AiJobSearchBy.Services.Ai
-
-**src/Services/Ai/IAiChatProvider.cs**
-  ns: AiJobSearchBy.Services.Ai
-
-**src/Services/Ai/Llm7Provider.cs**
-  ns: AiJobSearchBy.Services.Ai
-  -> AiJobSearchBy.Services
-
-**src/Services/Ai/LocalMatchScorer.cs**
-  ns: AiJobSearchBy.Services.Ai
-  -> AiJobSearchBy.Services
-
-**src/Services/Ai/ResponseCostCounter.cs**
-  ns: AiJobSearchBy.Services.Ai
-  -> AiJobSearchBy.Services
-
-**src/Services/Ai/TaskRoutingPolicy.cs**
-  ns: AiJobSearchBy.Services.Ai
-  -> AiJobSearchBy.Services
-
-**src/Tests/Ai/Llm7ProviderTests.cs**
-  ns: AiJobSearchBy.Tests.Ai
-  -> AiJobSearchBy.Services
-  -> AiJobSearchBy.Services.Ai
-  -> AiJobSearchBy.Tests.Logging
-  -> Xunit
-
-**src/Tests/Ai/RoutingScorerCostTests.cs**
-  ns: AiJobSearchBy.Tests.Ai
-  -> AiJobSearchBy.Services
-  -> AiJobSearchBy.Services.Ai
-  -> AiJobSearchBy.Tests.Logging
-  -> Xunit
-
-**src/Tests/Logging/LogServiceTests.cs**
   ns: AiJobSearchBy.Tests.Logging
   -> AiJobSearchBy.Services
   -> Xunit
@@ -646,6 +591,12 @@
 **src/AiJobSearchBy.Tests/DedupeHasherTests.cs**
   class: DedupeHasherTests
 
+**src/AiJobSearchBy.Tests/Fakes.cs**
+  FakePortal -> IPortalService
+  FakeHttpHandler -> HttpMessageHandler
+  FakeLocalSecrets -> ILocalSecrets
+  SilentLog -> ILogService
+
 **src/AiJobSearchBy.Tests/HhByPortalTests.cs**
   class: HhByPortalTests
 
@@ -695,6 +646,9 @@
 **src/AiJobSearchBy.Tests/SettingsViewModelTests.cs**
   class: SettingsViewModelTests
 
+**src/AiJobSearchBy.Tests/TestConfigEnv.cs**
+  class: TestConfigEnv
+
 **src/AiJobSearchBy.Tests/Ai/Llm7ProviderTests.cs**
   class: Llm7ProviderTests
   StubHandler -> HttpMessageHandler
@@ -709,54 +663,6 @@
   StubProvider -> IAiChatProvider
 
 **src/AiJobSearchBy.Tests/Logging/LogServiceTests.cs**
-  class: LogServiceTests
-
-**src/AiJobSearchBy.Tests/TestSupport/Fakes.cs**
-  FakePortal -> IPortalService
-  FakeHttpHandler -> HttpMessageHandler
-  FakeLocalSecrets -> ILocalSecrets
-  SilentLog -> ILogService
-
-**src/AiJobSearchBy.Tests/TestSupport/TestConfigEnv.cs**
-  class: TestConfigEnv
-
-**src/Services/ILogService.cs**
-  interface: ILogService
-  LogService -> ILogService
-
-**src/Services/Ai/AiChatModels.cs**
-  class: AiChatRequest
-  class: AiChatUsage
-  class: AiChatResult
-  AiProviderBusyException -> Exception
-
-**src/Services/Ai/IAiChatProvider.cs**
-  interface: IAiChatProvider
-
-**src/Services/Ai/Llm7Provider.cs**
-  Llm7Provider -> IAiChatProvider
-  class: AiBudgetLedger
-
-**src/Services/Ai/LocalMatchScorer.cs**
-  class: LocalMatchVerdict
-  class: LocalMatchScorer
-
-**src/Services/Ai/ResponseCostCounter.cs**
-  class: StageCost
-  class: ResponseCostCounter
-
-**src/Services/Ai/TaskRoutingPolicy.cs**
-  class: TaskRoutingPolicy
-
-**src/Tests/Ai/Llm7ProviderTests.cs**
-  class: Llm7ProviderTests
-  StubHandler -> HttpMessageHandler
-
-**src/Tests/Ai/RoutingScorerCostTests.cs**
-  class: RoutingScorerCostTests
-  StubProvider -> IAiChatProvider
-
-**src/Tests/Logging/LogServiceTests.cs**
   class: LogServiceTests
 
 ## 4. XAML VIEW BINDINGS (x:DataType)
@@ -885,6 +791,7 @@ graph TD
 - `src/AiJobSearchBy.Tests/CompositionRootTests.cs`: `каркасный гейт WP-0 — контейнер собирается, регистрации на месте.`
 - `src/AiJobSearchBy.Tests/ConfigUpdateKeyTests.cs`: `WP-U1 — окно настроек пишет ключи обратно в local.json`
 - `src/AiJobSearchBy.Tests/DedupeHasherTests.cs`: `гейты дедупа (RFC-003 §2.8, architecture.md §10): композит ДО`
+- `src/AiJobSearchBy.Tests/Fakes.cs`: `общие фейки тестов портального каркаса WP-P0 — без сети (FakeHttpHandler)`
 - `src/AiJobSearchBy.Tests/HhByPortalTests.cs`: `гейты адаптера hh-by (карточка §2.11 в portals-catalog.md): парсинг`
 - `src/AiJobSearchBy.Tests/KeysCheckServiceTests.cs`: `гейты keys-check (RFC-003 §2.9): auth=none зелёный сразу; ключевой —`
 - `src/AiJobSearchBy.Tests/LocalEmbeddingServiceTests.cs`: `LocalEmbeddingService (WP-U2) — самопробник (идентичная пара обязана`
@@ -902,7 +809,6 @@ graph TD
 - `src/AiJobSearchBy.Tests/Ai/OpenAiCompatibleProviderTests.cs`: `тесты -> OpenAiCompatibleProvider поверх фейкового HttpMessageHandler (без сети)`
 - `src/AiJobSearchBy.Tests/Ai/RoutingScorerCostTests.cs`: `тесты -> TaskRoutingPolicy / LocalMatchScorer / ResponseCostCounter на StubProvider-цепи`
 - `src/AiJobSearchBy.Tests/Logging/LogServiceTests.cs`: `тесты -> LogService (в память-кольцо + диск во временный каталог)`
-- `src/AiJobSearchBy.Tests/TestSupport/Fakes.cs`: `общие фейки тестов портального каркаса WP-P0 — без сети (FakeHttpHandler)`
 
 **Detected events:**
 - `MainViewModel.SettingsRequested` : `Action?` (private)
@@ -994,6 +900,9 @@ graph TD
     ApplicationStoreTests -->|creates| LogService
     ApplicationStoreTests -->|creates| PdfDocumentRecord
     ConfigUpdateKeyTests -->|creates| LogService
+    FakePortal -->|creates| NotSupportedException
+    FakePortal -->|creates| PortalDescriptor
+    FakePortal -->|creates| PortalHealthReport
     HhByPortalTests -->|creates| FakeHttpHandler
     HhByPortalTests -->|creates| HhByPortal
     HhByPortalTests -->|creates| HttpRequestException
@@ -1080,9 +989,6 @@ graph TD
     StubProvider -->|creates| AiChatUsage
     StubProvider -->|creates| AiProviderBusyException
     LogServiceTests -->|creates| LogService
-    FakePortal -->|creates| NotSupportedException
-    FakePortal -->|creates| PortalDescriptor
-    FakePortal -->|creates| PortalHealthReport
 ```
 
 **Detected instantiations by class:**
@@ -1117,6 +1023,7 @@ graph TD
 - `SettingsWindow` creates: `SettingsViewModel`
 - `ApplicationStoreTests` creates: `ApplicationRecord`, `ApplicationStore`, `DateTimeOffset`, `LogService`, `PdfDocumentRecord`
 - `ConfigUpdateKeyTests` creates: `LogService`
+- `FakePortal` creates: `NotSupportedException`, `PortalDescriptor`, `PortalHealthReport`
 - `HhByPortalTests` creates: `FakeHttpHandler`, `HhByPortal`, `HttpRequestException`, `PortalRegistry`, `SilentLog`
 - `KeysCheckServiceTests` creates: `FakeLocalSecrets`, `FakePortal`, `HttpRequestException`, `KeyPingOutcome`, `KeysCheckService`, `PortalRegistry`
 - `LocalEmbeddingServiceTests` creates: `FakeHttpHandler`, `LocalEmbeddingService`, `SilentLog`
@@ -1140,7 +1047,6 @@ graph TD
 - `RoutingScorerCostTests` creates: `AiChatRequest`, `LocalMatchScorer`, `ResponseCostCounter`, `StubProvider`, `TaskRoutingPolicy`
 - `StubProvider` creates: `AiChatResult`, `AiChatUsage`, `AiProviderBusyException`
 - `LogServiceTests` creates: `LogService`
-- `FakePortal` creates: `NotSupportedException`, `PortalDescriptor`, `PortalHealthReport`
 
 
 ### 5.3 Shared Mutable State
@@ -1155,23 +1061,17 @@ graph TD
 | `_http` | `HttpClient` | `Llm7Provider` | writes |
 | `_http` | `HttpClient` | `IEmbeddingService` | writes |
 | `_http` | `HttpClient` | `OpenAiCompatibleProvider` | writes |
-| `_http` | `HttpClient` | `Llm7Provider` | writes |
-| `StopWords` | `HashSet<string>` | `LocalMatchVerdict` | writes |
 | `StopWords` | `HashSet<string>` | `LocalMatchVerdict` | writes |
 | `_serialGate` | `SemaphoreSlim?` | `OpenAiCompatibleProvider` | writes |
 | `_stages` | `List<StageCost>` | `StageCost` | writes |
-| `_stages` | `List<StageCost>` | `StageCost` | writes |
 | `_providers` | `List<IAiChatProvider>` | `TaskRoutingPolicy` | writes |
-| `_providers` | `List<IAiChatProvider>` | `TaskRoutingPolicy` | writes |
-| `_coverLetterOrder` | `IReadOnlyList<string>?` | `TaskRoutingPolicy` | writes |
 | `_coverLetterOrder` | `IReadOnlyList<string>?` | `TaskRoutingPolicy` | writes |
 | `_searchCts` | `CancellationTokenSource?` | `MainViewModel` | writes |
-| `RequestUris` | `List<string>` | `Llm7ProviderTests` | writes |
-| `RequestUris` | `List<string>` | `OpenAiCompatibleProviderTests` | writes |
-| `RequestUris` | `List<string>` | `Llm7ProviderTests` | writes |
-| `Bodies` | `List<string>` | `OpenAiCompatibleProviderTests` | writes |
 | `_requests` | `List<HttpRequestMessage>` | `FakePortal` | writes |
 | `Requests` | `IReadOnlyList<HttpRequestMessage>` | `FakePortal` | writes |
+| `RequestUris` | `List<string>` | `Llm7ProviderTests` | writes |
+| `RequestUris` | `List<string>` | `OpenAiCompatibleProviderTests` | writes |
+| `Bodies` | `List<string>` | `OpenAiCompatibleProviderTests` | writes |
 
 **Raw STATE annotations:**
 - `src/AiJobSearchBy/CompositionRoot.cs`: `без состояния — чистая фабрика графа.`
@@ -1387,6 +1287,7 @@ graph LR
 | `src/AiJobSearchBy.Tests/ConfigUpdateKeyTests.cs` | `FLOW` | WP-U1 — окно настроек пишет ключи обратно в local.json |
 | `src/AiJobSearchBy.Tests/ConfigUpdateKeyTests.cs` | `LIFECYCLE` | каждый тест — свой temp-каталог конфига (RFC-004 §2.3). |
 | `src/AiJobSearchBy.Tests/DedupeHasherTests.cs` | `FLOW` | гейты дедупа (RFC-003 §2.8, architecture.md §10): композит ДО |
+| `src/AiJobSearchBy.Tests/Fakes.cs` | `FLOW` | общие фейки тестов портального каркаса WP-P0 — без сети (FakeHttpHandler) |
 | `src/AiJobSearchBy.Tests/HhByPortalTests.cs` | `FLOW` | гейты адаптера hh-by (карточка §2.11 в portals-catalog.md): парсинг |
 | `src/AiJobSearchBy.Tests/KeysCheckServiceTests.cs` | `FLOW` | гейты keys-check (RFC-003 §2.9): auth=none зелёный сразу; ключевой — |
 | `src/AiJobSearchBy.Tests/LocalEmbeddingServiceTests.cs` | `FLOW` | LocalEmbeddingService (WP-U2) — самопробник (идентичная пара обязана |
@@ -1425,7 +1326,6 @@ graph LR
 | `src/AiJobSearchBy.Tests/Logging/LogServiceTests.cs` | `LIFECYCLE` | каждый тест создаёт свой LogService со своим tmp-каталогом протокола |
 | `src/AiJobSearchBy.Tests/Logging/LogServiceTests.cs` | `STATE` | tmp-каталоги одноразовые; echoToConsole: false — чтобы не шуметь в выводе тестов |
 | `src/AiJobSearchBy.Tests/Logging/LogServiceTests.cs` | `THREAD` | 8 потоков x 50 записей — каждая обязана дойти до диска |
-| `src/AiJobSearchBy.Tests/TestSupport/Fakes.cs` | `FLOW` | общие фейки тестов портального каркаса WP-P0 — без сети (FakeHttpHandler) |
 
 
 ### 5.6 Event Subscriptions (who listens to whom)
@@ -2047,6 +1947,29 @@ graph TD
     - ComputeComposite_NullExternalId_ParticipatesAsEmpty(): void
     - ComputeComposite_BlankPortalIdOrUrl_Throws(string portalId, string externalId, string canonicalUrl): void
 
+**src/AiJobSearchBy.Tests/Fakes.cs**
+  FakePortal (class):
+    - FakePortal(string id, int priority = 5, PortalAuthKind auth = PortalAuthKind.None, bool defaultEnabled = true)  [ctor]
+    - SearchAsync(string query, CancellationToken ct = default): Task<IReadOnlyList<JobPosting>>
+    - DetailAsync(string idOrUrl, CancellationToken ct = default): Task<JobPosting>
+    - HealthCheckAsync(CancellationToken ct = default): Task<PortalHealthReport>
+    - Descriptor: PortalDescriptor
+  FakeHttpHandler (class):
+    - FakeHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> respond)  [ctor]
+    - static Of(string body, string mediaType, int status = 200): HttpResponseMessage
+    - RequestCount: int
+    - Requests: IReadOnlyList<HttpRequestMessage>
+  FakeLocalSecrets (class):
+    - FakeLocalSecrets(IReadOnlyDictionary<string, string> keys)  [ctor]
+    - GetPortalKey(string portalId): string?
+  SilentLog (class):
+    - Log(string message): void
+    - LogSuccess(string message): void
+    - LogError(string message): void
+    - LogWarn(string message): void
+    - Clear(): void
+    - Logs: ObservableCollection<string>
+
 **src/AiJobSearchBy.Tests/KeysCheckServiceTests.cs**
   KeysCheckServiceTests (class):
     - AuthNone_IsGreen_WithoutKeyOrPing(): Task
@@ -2185,6 +2108,10 @@ graph TD
     - Save_EmptyOutboxPath_FallsBackToDefault(): void
     - Done_FiresCloseRequested_WithoutWriting(): void
 
+**src/AiJobSearchBy.Tests/TestConfigEnv.cs**
+  TestConfigEnv (class):
+    - static Init(): void
+
 **src/AiJobSearchBy.Tests/Ai/Llm7ProviderTests.cs**
   Llm7ProviderTests (class):
     - Dispose(): void
@@ -2253,158 +2180,6 @@ graph TD
     - Clear_Empties_Window_Keeps_Disk_And_Records_Event(): void
     - Disk_Failure_Is_Not_Silent_But_Not_Fatal(): void
     - Concurrent_Logs_All_Reach_Disk(): Task
-
-**src/AiJobSearchBy.Tests/TestSupport/Fakes.cs**
-  FakePortal (class):
-    - FakePortal(string id, int priority = 5, PortalAuthKind auth = PortalAuthKind.None, bool defaultEnabled = true)  [ctor]
-    - SearchAsync(string query, CancellationToken ct = default): Task<IReadOnlyList<JobPosting>>
-    - DetailAsync(string idOrUrl, CancellationToken ct = default): Task<JobPosting>
-    - HealthCheckAsync(CancellationToken ct = default): Task<PortalHealthReport>
-    - Descriptor: PortalDescriptor
-  FakeHttpHandler (class):
-    - FakeHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> respond)  [ctor]
-    - static Of(string body, string mediaType, int status = 200): HttpResponseMessage
-    - RequestCount: int
-    - Requests: IReadOnlyList<HttpRequestMessage>
-  FakeLocalSecrets (class):
-    - FakeLocalSecrets(IReadOnlyDictionary<string, string> keys)  [ctor]
-    - GetPortalKey(string portalId): string?
-  SilentLog (class):
-    - Log(string message): void
-    - LogSuccess(string message): void
-    - LogError(string message): void
-    - LogWarn(string message): void
-    - Clear(): void
-    - Logs: ObservableCollection<string>
-
-**src/AiJobSearchBy.Tests/TestSupport/TestConfigEnv.cs**
-  TestConfigEnv (class):
-    - static Init(): void
-
-**src/Services/ILogService.cs**
-  ILogService (interface):
-    - Logs: ObservableCollection<string>
-    - Log(string message): void
-    - LogSuccess(string message): void
-    - LogError(string message): void
-    - LogWarn(string message): void
-    - Clear(): void
-  LogService (class):
-    - LogService(string? logDirectory = null, bool echoToConsole = true)  [ctor]
-    - Log(string message): void
-    - LogSuccess(string message): void
-    - LogError(string message): void
-    - LogWarn(string message): void
-    - Clear(): void
-    - Logs: ObservableCollection<string>
-    - DiskWriteFailures: long
-
-**src/Services/Ai/AiChatModels.cs**
-  AiChatRequest (record):
-    - AiChatRequest(string SystemPrompt, string UserPrompt, int MaxTokens, double Temperature = 0.4)  [primary ctor]
-  AiChatUsage (record):
-    - AiChatUsage(long PromptTokens, long CompletionTokens)  [primary ctor]
-    - TotalTokens: long
-  AiChatResult (record):
-    - AiChatResult(string Content, string Model, AiChatUsage Usage, string ProviderName, TimeSpan Duration)  [primary ctor]
-  AiProviderBusyException (class):
-    - AiProviderBusyException(string message)  [ctor]
-
-**src/Services/Ai/IAiChatProvider.cs**
-  IAiChatProvider (interface):
-    - Name: string
-    - QualityRank: int
-    - RemainingDailyTokens(): long?
-    - CompleteAsync(AiChatRequest request, CancellationToken ct = default): Task<AiChatResult>
-
-**src/Services/Ai/Llm7Provider.cs**
-  Llm7Provider (class):
-    - Llm7Provider(ILogService log, HttpClient? httpClient = null, string? apiKey = null, string? model = null, string? baseUrl = null, long dailyTokenCap = DefaultDailyTokenCap, string? budgetFilePath = null)  [ctor]
-    - RemainingDailyTokens(): long?
-    - CompleteAsync(AiChatRequest request, CancellationToken ct = default): Task<AiChatResult>
-    - ProbeModelsAsync(CancellationToken ct = default): Task<bool>
-    - Name: string
-    - QualityRank: int
-    - IsAnonymous: bool
-    - const DefaultBaseUrl: string
-    - const DefaultModel: string
-    - const DefaultDailyTokenCap: long
-    - const AnonymousKey: string
-  AiBudgetLedger (class):
-    - AiBudgetLedger(long dailyCap, string? filePath, ILogService log)  [ctor]
-    - Add(long tokens): void
-    - Cap: long
-    - Day: DateTime
-    - UsedToday: long
-    - Remaining: long
-    - IsExhausted: bool
-
-**src/Services/Ai/LocalMatchScorer.cs**
-  LocalMatchVerdict (record):
-    - LocalMatchVerdict(int Score, IReadOnlyList<string> Matched, IReadOnlyList<string> Missing)  [primary ctor]
-    - Level: string
-  LocalMatchScorer (class):
-    - LocalMatchScorer(ILogService log, int highThreshold = 70, int mediumThreshold = 40)  [ctor]
-    - Score(string resumeText, string vacancyText): LocalMatchVerdict
-
-**src/Services/Ai/ResponseCostCounter.cs**
-  StageCost (record):
-    - StageCost(string Stage, string Provider, long PromptTokens, long CompletionTokens, int Requests, TimeSpan Duration)  [primary ctor]
-  ResponseCostCounter (class):
-    - ResponseCostCounter(ILogService log)  [ctor]
-    - BeginResponse(int responseNumber): void
-    - Record(string stage, string provider, long promptTokens, long completionTokens, int requests, TimeSpan duration): void
-    - EndResponse(): string
-
-**src/Services/Ai/TaskRoutingPolicy.cs**
-  TaskRoutingPolicy (class):
-    - TaskRoutingPolicy(ILogService log, IEnumerable<IAiChatProvider> providers, IReadOnlyList<string>? coverLetterOrder = null)  [ctor]
-    - OrderFor(AiTaskKind kind): IReadOnlyList<IAiChatProvider>
-    - RunAsync(AiTaskKind kind, AiChatRequest request, CancellationToken ct = default): Task<AiChatResult?>
-
-**src/Tests/Ai/Llm7ProviderTests.cs**
-  Llm7ProviderTests (class):
-    - Dispose(): void
-    - Success_Parses_Usage_And_Updates_Ledger(): Task
-    - Anonymous_Mode_Uses_Placeholder_And_Warns(): Task
-    - TooManyRequests_Means_Busy_With_RetryAfter(): Task
-    - Server_Error_Is_Loud_Not_Silent(): Task
-    - Exhausted_Local_Ledger_Fails_Fast_Without_Http(): Task
-    - Ledger_Persists_Across_Instances_Same_Day(): Task
-    - Probe_Models_Reports_Catalog_And_Missing_Model(): Task
-  StubHandler (class):
-    - StubHandler(Func<HttpRequestMessage, HttpResponseMessage> responder)  [ctor]
-    - RequestsTo(string path): System.Collections.Generic.IEnumerable<string>
-    - readonly RequestUris: List<string>
-
-**src/Tests/Ai/RoutingScorerCostTests.cs**
-  RoutingScorerCostTests (class):
-    - Dispose(): void
-    - Match_Assessment_Is_Refused_With_Loud_Warn(): void
-    - Resume_Uses_Quality_Order_Letter_Uses_Cheap_Order(): void
-    - Chain_Failover_Busy_To_Next(): Task
-    - Chain_Exhaustion_Is_Loud_Error(): Task
-    - Scorer_Scores_Keywords_Without_Ai(): void
-    - Scorer_Gives_Low_Score_For_Unrelated_Resume(): void
-    - Cost_Counter_Builds_Summary_Line(): void
-  StubProvider (class):
-    - StubProvider(string name, int qualityRank, bool busy = false)  [ctor]
-    - RemainingDailyTokens(): long?
-    - CompleteAsync(AiChatRequest request, CancellationToken ct = default): Task<AiChatResult>
-    - Name: string
-    - QualityRank: int
-
-**src/Tests/Logging/LogServiceTests.cs**
-  LogServiceTests (class):
-    - Dispose(): void
-    - static TempLogDir(): string
-    - Window_Format_And_Markers(): void
-    - Disk_Line_Format_And_File_Name(): void
-    - Ring_Keeps_Last_300(): void
-    - All_Four_Methods_Appear_On_Disk(): void
-    - Clear_Empties_Ring_And_Announces_To_Disk_Only(): void
-    - Disk_Failure_Is_Counted_And_Window_Survives(): void
-    - Races_Lose_Nothing_On_Disk(): Task
 
 ## 7. CSPROJ PROPERTIES (build/test configuration)
 
