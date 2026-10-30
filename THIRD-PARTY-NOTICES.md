@@ -17,12 +17,12 @@ prompts/commands/skills are **not** carried over (owner decision,
 2026-10-20). If content is ever ported in the future, each copied
 markdown asset must carry a fixed 3-line provenance header (original
 upstream path + MIT notice + copy date) with the file body verbatim to
-upstream (внутренний журнал решений, RFC-007 §2.2).
+upstream.
 
 ## 1. ai-job-search (upstream) — MIT License
 
 - Source: <https://github.com/MadsLorentzen/ai-job-search>
-- License: MIT — see [LICENSE](LICENSE), included verbatim at commit 0.
+- License: MIT — see [LICENSE](LICENSE), included verbatim in this repository.
 - Used by this project: the portal adapter contract and the reference
   workflow (no verbatim files; the upstream markdown prompt assets are
   not carried over — owner decision, 2026-10-20).
@@ -42,8 +42,7 @@ upstream (внутренний журнал решений, RFC-007 §2.2).
   is lost, there is a 90-day period to transition to a paid license.
 - Redistribution is permitted only as a **compiled component of a
   Derivative Application**: QuestPDF source code is not included in the
-  distribution zip and proprietary notices are not removed or obscured
-  (RFC-007 §2.5).
+  distribution zip and proprietary notices are not removed or obscured.
 - "Built with QuestPDF" is used in the README as a truthful factual
   statement — permitted by the license, not a requirement.
 - This distribution is built and redistributed by the ai-job-search-by
@@ -54,21 +53,23 @@ upstream (внутренний журнал решений, RFC-007 §2.2).
 
 ## 3. Fonts
 
-- **Lato 2.015** — SIL Open Font License 1.1 (OFL-1.1). Bundled inside
-  QuestPDF as its default document font; covers Latin, Greek and
-  Cyrillic. The OFL license text ships with the distribution:
-  `licenses\LATO-OFL.txt`.
-- DejaVu / Noto are **not bundled** in v1. The optional Noto fallback
-  (planned for v1.1) would ship as font files plus the license text —
-  never taken from the operating system.
-- System fonts (Arial, Calibri, Segoe UI, Times New Roman) are **not
-  used or referenced** by the document exporters (project decision 01;
-  enforced by a clean CI-runner test).
+- This project does **not** bundle any font files of its own.
+- **Lato 2.015** (SIL Open Font License 1.1, OFL-1.1) ships *inside the
+  QuestPDF NuGet package* as QuestPDF's default document font. Our code
+  never invokes it: every document sets its font family explicitly
+  (see below).
+- Document exporters (QuestPDF) use the Windows system font **Segoe UI**
+  — it ships with Windows 10/11 and covers Cyrillic; no font files are
+  copied into the distribution.
+- The PDF overlay service resolves fonts from the operating system in a
+  fixed order: Segoe UI → Arial → Calibri → Tahoma → DejaVu Sans. If
+  none of these TTFs is available, the overlay stops with a clear error
+  message instead of producing a broken document.
 
 ## 4. NuGet dependencies
 
-Versions are pinned by the stack RFC (RFC-001); `Directory.Packages.props`
-is the authoritative source at build time.
+Versions are pinned in [`src/AiJobSearchBy/AiJobSearchBy.csproj`](src/AiJobSearchBy/AiJobSearchBy.csproj);
+that file is the authoritative source at build time.
 
 | Component | Version | License (SPDX) |
 |---|---|---|
@@ -107,8 +108,8 @@ contains Microsoft and third-party components. The SDK
 A new NuGet package in the distribution = a new line in this file in the
 same commit. Licenses are verified against the primary source
 (NuGet / deps.dev / GitHub), never copied from another document.
-Last full check: 2026-10-19 (RFC-007 §2.4).
+Last full check: 2026-10-19.
 
-2026-10-29 (r21): former §7 (embedding model Qwen3-Embedding-0.6B) removed —
-the embedding subsystem was cut from the application entirely (owner
-decision), the application no longer acts as an embeddings HTTP client.
+2026-10-29: former §7 (embedding model Qwen3-Embedding-0.6B) removed —
+the embedding subsystem was cut from the application entirely; the
+application no longer acts as an embeddings HTTP client.

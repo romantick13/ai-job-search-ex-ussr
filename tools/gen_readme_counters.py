@@ -72,6 +72,7 @@ ACCESS_LABEL = {
 
 TOS_LABEL = {
     "allowed": "разрешён",
+    "browser_view": "браузерный просмотр",
     "official_api": "официальное API",
     "forbidden": "запрещён",
     "unverified": "не проверен",
@@ -125,9 +126,9 @@ def validate(registry: dict) -> list[str]:
                 f"Портал {pid}: tos_status=unverified, но default_enabled=true. "
                 f"Непроверенный портал по умолчанию выключен."
             )
-        elif tos == "allowed" and not portal.get("tos_evidence"):
+        elif tos in ("allowed", "browser_view") and not portal.get("tos_evidence"):
             problems.append(
-                f"Портал {pid}: tos_status=allowed, но нет tos_evidence. "
+                f"Портал {pid}: tos_status={tos}, но нет tos_evidence. "
                 f"Приложите цитату/ссылку на документ (или публичный API) и дату проверки."
             )
 
@@ -179,15 +180,16 @@ def render_portal_table(registry: dict) -> str:
         # r21 (решение владельца): чекбоксы порталов по умолчанию выключены —
         # цепочку юзер собирает галочками, выбор запоминается в базе.
         head = (
-            f"**{count} порталов** включены в цепочку по умолчанию (r21: все "
-            f"чекбоксы по умолчанию выключены — цепочку собираешь галочками сам, "
+            f"**{count} порталов** включены в цепочку по умолчанию (все чекбоксы "
+            f"по умолчанию выключены — цепочку собираешь галочками сам, "
             f"выбор запоминается). Рабочих адаптеров: "
             f"**{len([p for p in registry.get('portals', []) if p.get('adapter_implemented', False)])}**."
         )
 
     lines = [head, "", "| Портал | Домен | Страна | Доступ | Статус ToS |", "|---|---|---|---|---|"]
     wired = [p for p in registry.get("portals", []) if p.get("adapter_implemented", False)]
-    for p in sorted(wired, key=lambda x: (x.get("country", ""), x.get("name", ""))):
+    # Порядок таблицы = порядок реестра (приоритет проекта), не алфавит.
+    for p in wired:
         country = COUNTRY_LABEL.get(p.get("country", ""), p.get("country", "—"))
         lines.append(
             f"| {p.get('name', p['id'])} | `{p.get('domain', '—')}` | {country} | "
