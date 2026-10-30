@@ -169,14 +169,21 @@ public sealed class LmStudioCliTests : IDisposable
         Assert.DoesNotContain(ids, id => id.StartsWith("text-embedding"));
     }
 
+    // r22h: reasoning-семьи (qwen3.5, qwen3-vl) обходятся — в живом логе
+    // 2026-10-30 qwen3.5-9b унесла ответ в reasoning_content (content пуст).
+    // Из каталога фикстуры выбирается qwen2.5-vl-7b-instruct — первый
+    // не-thinking по приоритету качества. Явная цель сильнее автоматики:
+    // qwen3.5 остаётся легитимной целью, если юзер задал её сам.
     [Fact]
-    public void ResolveCandidate_From_Catalogue_Prefers_Qwen35()
+    public void ResolveCandidate_From_Catalogue_Skips_Reasoning_Families()
     {
         var log = Log();
         var cli = new LmStudioCli(log, runner: args =>
             args == "ls" ? LsCatalogue : null);
-        // Плейсхолдер-дефолт -> кандидат по приоритету качества (qwen3.5 первый).
-        Assert.Equal("qwen/qwen3.5-9b", cli.ResolveCandidate("local-model", ""));
+        // Плейсхолдер-дефолт -> кандидат по приоритету качества среди не-thinking.
+        Assert.Equal("qwen2.5-vl-7b-instruct", cli.ResolveCandidate("local-model", ""));
+        // Зафиксированная модель приоритетнее каталога, даже если она reasoning.
+        Assert.Equal("qwen/qwen3.5-9b", cli.ResolveCandidate("qwen/qwen3.5-9b", ""));
     }
 
     [Fact]
@@ -185,6 +192,35 @@ public sealed class LmStudioCliTests : IDisposable
         var log = Log();
         var cli = new LmStudioCli(log, runner: args => args == "ls" ? LsCatalogue : null);
         Assert.Equal("llama", cli.ResolveCandidate("llama", ""));
+    }
+
+    // r22h: маркеры reasoning-семей — qwen3/3.5 (гибриды), R1, gpt-oss, QwQ;
+    // qwen2.5 и инструкты — НЕ думающие (ловушка Contains: «qwen3» не матчит qwen2.5).
+    [Fact]
+    public void IsThinkingModel_Marks_Hybrid_Families()
+    {
+        Assert.True(LmStudioCli.IsThinkingModel("qwen/qwen3.5-9b"));
+        Assert.True(LmStudioCli.IsThinkingModel("qwen3-vl-8b-instruct"));
+        Assert.True(LmStudioCli.IsThinkingModel("deepseek-r1-distill-qwen-7b"));
+        Assert.True(LmStudioCli.IsThinkingModel("gpt-oss:20b"));
+        Assert.True(LmStudioCli.IsThinkingModel("QwQ-32B"));
+        Assert.False(LmStudioCli.IsThinkingModel("qwen2.5-vl-7b-instruct"));
+        Assert.False(LmStudioCli.IsThinkingModel("qwen"));
+        Assert.False(LmStudioCli.IsThinkingModel("llama-8b-instruct"));
+        Assert.False(LmStudioCli.IsThinkingModel("google/gemma-4-12b-qat"));
+    }
+
+    // Только reasoning-модели в каталоге — берём по приоритету качества,
+    // но громко кричим: мелкие стадии могут уйти в пустой content.
+    [Fact]
+    public void ResolveCandidate_OnlyReasoning_Warns_And_Picks_Best()
+    {
+        var log = Log();
+        const string ls = "LLM\nqwen/qwen3.5-9b (1 variant)    9B    qwen35    6.55 GB    Local";
+        var cli = new LmStudioCli(log, runner: args => args == "ls" ? ls : null);
+
+        Assert.Equal("qwen/qwen3.5-9b", cli.ResolveCandidate("local-model", ""));
+        Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("только reasoning-модели"));
     }
 
     // --- lms load ---
@@ -325,6 +361,11 @@ public sealed class LmStudioCliTests : IDisposable
     public async Task EnsureReady_SilentLoad_PsEmpty_Fails_Fast()
     {
         // Ни ps, ни идентификатора — вот теперь честный провал и фолбэк.
+        // r22i: авто-кандидат — первый не-thinking из каталога
+        // (qwen2.5-vl-7b-instruct), а не qwen3.5: r22h убрал reasoning-семьи
+        // из автовыбора (у qwen3.5 ответ уходил в reasoning_content, content
+        // пуст — живой лог 2026-10-30). Протухшее ожидание r22h (qwen3.5)
+        // здесь и было единственным красным тестом прогона владельца.
         var lms = new FakeLms { LoadReply = "", LoadedAfter = PsEmpty };
         var log = Log();
         var cli = Cli(log, lms.Run, FakeHttp);
@@ -333,7 +374,7 @@ public sealed class LmStudioCliTests : IDisposable
 
         Assert.Null(model);
         Assert.Equal(1, lms.LoadCalls);
-        Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("загрузка 'qwen/qwen3.5-9b' не удалась"));
+        Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("загрузка 'qwen2.5-vl-7b-instruct' не удалась"));
     }
 
     [Fact]

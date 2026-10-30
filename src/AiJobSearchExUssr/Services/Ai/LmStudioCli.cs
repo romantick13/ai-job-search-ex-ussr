@@ -96,12 +96,32 @@ public sealed class LmStudioCli
 {
     // / <summary>Приоритет подбора кандидата из lms ls: подстроки имени по убыванию
     // / качества для письма/адаптации (список: qwen3.5 —
-    // / свежайшее поколение, далее VL-инструкты, llama, базовый qwen).</summary>
+    // / свежайшее поколение, далее VL-инструкты, llama, базовый qwen).
+    // / r22h: список применяется к не-reasoning кандидатам первым —
+    // / см. ResolveCandidate (урок пустого content на qwen3.5-9b).</summary>
     public static readonly string[] DefaultModelPriority =
         { "qwen3.5", "qwen3-vl", "qwen2.5-vl", "llama", "qwen" };
 
     // / <summary>Не чат-модели (OCR/ASR) — в кандидаты не попадают даже из секции LLM.</summary>
     private static readonly string[] NonChatMarkers = { "whisper", "embed", "bge-", "nomic", "ocr", "rerank", "mineru" };
+
+    // r22h: reasoning-семьи — thinking включён по умолчанию или выключению
+    // не подлежит. При мелком max_tokens такой модель сжигает бюджет на
+    // размышления, content пуст (qwen3.5-9b в живом логе 2026-10-30: 254 ток,
+    // весь ответ ушёл в reasoning_content). «r1» — R1-дистилляты (у них
+    // выключателя нет вовсе), «qwen3» матчит гибридов qwen3.5, но НЕ
+    // qwen2.5 (она не думает); «qwq»/«reason»/«thinking»/«gpt-oss» — прочие
+    // думающие семьи.
+    private static readonly string[] ThinkingMarkers = { "qwen3", "qwq", "r1", "reason", "thinking", "gpt-oss" };
+
+    // / <summary>Модель думает по умолчанию? (qwen3/3.5-гибриды, R1, gpt-oss, QwQ,
+    // / «thinking»/«reasoner»-суффиксы.) qwen2.5 и прочие инструкты — нет.</summary>
+    public static bool IsThinkingModel(string id)
+    {
+        foreach (var m in ThinkingMarkers)
+            if (id.Contains(m, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
 
     public const int LoadTimeoutMs = 120_000;
     public const int QuickTimeoutMs = 15_000;
@@ -468,7 +488,12 @@ public sealed class LmStudioCli
     }
 
     // / <summary>Кандидат из каталога: зафиксированная цель (не плейсхолдер) — она сама;
-    // / иначе приоритет подстрок DefaultModelPriority по списку lms ls, затем первая LLM.</summary>
+    // / иначе приоритет подстрок DefaultModelPriority по списку lms ls, затем первая LLM.
+    // / r22h: reasoning-семьи (IsThinkingModel) — последний выбор: на мелких
+    // / стадиях thinking съедает токены, content пуст (qwen3.5-9b, лог
+    // / 2026-10-30). Сперва кандидаты без thinking, в порядке качества; если
+    // / не-thinking нет вовсе — берём как есть и громко предупреждаем
+    // / (маркер /no_think qwen-семейству уходит на каждом запросе).</summary>
     public string? ResolveCandidate(string target, string psOutput)
     {
         // «local-model» — плейсхолдер-дефолт: реальную модель выбирает каталог.
@@ -479,12 +504,21 @@ public sealed class LmStudioCli
         var candidates = ParseLlmCandidates(RunLms("ls", QuickTimeoutMs) ?? "");
         if (candidates.Count == 0) return null;
 
+        var plain = candidates.Where(c => !IsThinkingModel(c)).ToList();
+        if (plain.Count == 0)
+        {
+            _log.LogWarn($"skip-note: lm-studio — в каталоге только reasoning-модели ({string.Join(", ", candidates)}); " +
+                         "решение: продолжаю по приоритету качества, но мелкие стадии могут уйти в пустой content — " +
+                         "скачайте инструкты (не qwen3/r1/gpt-oss)");
+        }
+        var pool = plain.Count > 0 ? plain : candidates;
+
         foreach (var marker in DefaultModelPriority)
         {
-            var hit = candidates.FirstOrDefault(c => c.Contains(marker, StringComparison.OrdinalIgnoreCase));
+            var hit = pool.FirstOrDefault(c => c.Contains(marker, StringComparison.OrdinalIgnoreCase));
             if (hit is not null) return hit;
         }
-        return candidates[0];
+        return pool[0];
     }
 
     // / <summary>проверка ОТКЛИКА модели — POST {base}chat/completions

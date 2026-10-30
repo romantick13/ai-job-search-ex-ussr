@@ -16,10 +16,17 @@ body:
     attributes:
       label: Какой портал
       options:
-        - Rabota.by
-        - Dev.by (jobs.devby.io)
-        - Belmeta (belmeta.com)
-        - Hirify (hirify.co)
+        - HH.ru (Россия)
+        - Rabota.by / HH.by (Беларусь)
+        - HH.kz (Казахстан)
+        - HH.uz (Узбекистан)
+        - RemoteOK
+        - Remotive
+        - Himalayas
+        - Jobicy
+        - WeWorkRemotely
+        - NoDesk
+        - HN: Who is hiring?
         - Другой — укажу в описании
     validations:
       required: true

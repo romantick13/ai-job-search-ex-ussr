@@ -139,12 +139,22 @@ public sealed class Llm7Provider : IAiChatProvider
                  $"промпт: система {request.SystemPrompt.Length} симв + пользователь {request.UserPrompt.Length} симв; " +
                  $"остаток дня по регистру: {_ledger.Remaining:N0} ток");
 
+        // r22h: gpt-oss — reasoning-модель: анализ идёт в reasoning-канал и
+        // при мелком max_tokens content остаётся пустым (живой лог 2026-10-30:
+        // «пустой content» на llm7 первой же ступенью цепи). «Reasoning: low» —
+        // родная директива gpt-oss (harmony-формат, та же строка пишет их
+        // системный шаблон): резонинг ужимается, бюджет остаётся ответу.
+        // Для не-gpt-oss моделей префикс не пишем — это был бы лишний текст.
+        var system = _model.Contains("gpt-oss", StringComparison.OrdinalIgnoreCase)
+            ? "Reasoning: low\n" + request.SystemPrompt
+            : request.SystemPrompt;
+
         var payload = JsonSerializer.Serialize(new
         {
             model = _model,
             messages = new object[]
             {
-                new { role = "system", content = request.SystemPrompt },
+                new { role = "system", content = system },
                 new { role = "user", content = request.UserPrompt }
             },
             max_tokens = request.MaxTokens,

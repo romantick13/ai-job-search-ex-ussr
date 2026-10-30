@@ -73,6 +73,36 @@ public sealed class Llm7ProviderTests : IDisposable
         Assert.Equal("gpt-oss:20b", Llm7Provider.DefaultModel);
     }
 
+    // r22h: gpt-oss — reasoning-модель; директива «Reasoning: low» в начале
+    // системного промпта (родная для harmony-формата) сжимает размышления —
+    // иначе при мелком max_tokens content пуст (живой лог 2026-10-30).
+    [Fact]
+    public async Task GptOss_Gets_Reasoning_Low_Directive()
+    {
+        var h = new StubHandler(_ => Ok(ChatBody));
+        var log = Log();
+        var p = new Llm7Provider(log, Http(h), apiKey: "test-key", model: "gpt-oss:20b", budgetFilePath: null);
+
+        await p.CompleteAsync(new AiChatRequest("система", "u", 256));
+
+        // \n внутри JSON-строки; кириллица эскейпится — проверяем только префикс
+        Assert.Contains("Reasoning: low\\n", h.LastBody);
+    }
+
+    // …а остальным моделям каталога префикс не пишем — это был бы лишний текст.
+    [Fact]
+    public async Task NonGptOss_Model_Gets_Prompt_As_Is()
+    {
+        var h = new StubHandler(_ => Ok(ChatBody));
+        var log = Log();
+        var p = new Llm7Provider(log, Http(h), apiKey: "test-key", model: "mistral-Nemo-Instruct-2407", budgetFilePath: null);
+
+        await p.CompleteAsync(new AiChatRequest("система", "u", 256));
+
+        Assert.DoesNotContain("Reasoning: low", h.LastBody);
+        Assert.Contains("mistral-Nemo-Instruct-2407", h.LastBody); // модель ушла в payload как есть
+    }
+
     [Fact]
     public async Task Anonymous_Mode_Uses_Placeholder_And_Warns()
     {
@@ -198,16 +228,19 @@ public sealed class Llm7ProviderTests : IDisposable
         public int TotalCalls;
         public readonly List<string> RequestUris = new();
         public string? LastAuthorization;
+        public string? LastBody;
 
         public System.Collections.Generic.IEnumerable<string> RequestsTo(string path) =>
             RequestUris.Where(u => u.Contains(path));
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Interlocked.Increment(ref TotalCalls);
             RequestUris.Add(request.RequestUri?.ToString() ?? "");
             LastAuthorization = request.Headers.Authorization?.ToString();
-            return Task.FromResult(_responder(request));
+            if (request.Content is not null)
+                LastBody = await request.Content.ReadAsStringAsync(ct);
+            return _responder(request);
         }
     }
 }

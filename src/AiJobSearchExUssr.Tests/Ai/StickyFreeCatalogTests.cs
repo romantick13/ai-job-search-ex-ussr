@@ -16,8 +16,10 @@ namespace AiJobSearchExUssr.Tests.Ai;
 // Тесты агрегаторного режима:
 // список бесплатных -> наилучшая -> отказ = следующая -> «липучесть» в файл.
 // StickyModelLedger: запись/чтение/сброс. Free-каталог в провайдере:
-// сортировка по контексту, 429 = следующая модель, липучесть первой на
-// следующем запросе, явная модель юзера отключает автоматику. OverrideModel:
+// сортировка по контексту, 429/403 = следующая модель, липучесть первой на
+// следующем запросе, явная модель юзера отключает автоматику. r22h: каталог
+// фильтрует не-чат (музыка/embeddings) и «free-вход, платный выход» (урок
+// lyria: pricing prompt "0", выход платный -> 402). OverrideModel:
 // бутстрап lm-studio подменяет модель в payload. Декоратор: бутстрап один раз
 // на процесс, повторные запросы идут напрямую.
 // ============================================================================
@@ -38,12 +40,14 @@ public sealed class StickyFreeCatalogTests : IDisposable
         """;
 
 // Каталог: платные + free на 8k + free на 128k — наилучшая = больший контекст.
+// r22h: у free по pricing ноль обязателен И на выходе (free-zero-priced);
+// «free-вход, платный выход» в каталог не попадает (урок lyria).
     private const string CatalogBody = """
         {"data":[
           {"id":"vendor/big-paid","pricing":{"prompt":"0.001"},"context_length":65536},
           {"id":"vendor/free-small:free","pricing":{"prompt":"0"},"context_length":8192},
           {"id":"vendor/free-big:free","pricing":{"prompt":"0"},"context_length":131072},
-          {"id":"vendor/free-zero-priced","pricing":{"prompt":"0"},"context_length":16384}
+          {"id":"vendor/free-zero-priced","pricing":{"prompt":"0","completion":"0"},"context_length":16384}
         ]}
         """;
 
@@ -55,6 +59,12 @@ public sealed class StickyFreeCatalogTests : IDisposable
     private static HttpResponseMessage TooMany() => new(HttpStatusCode.TooManyRequests)
     {
         Content = new StringContent("rate limited")
+    };
+
+    private static HttpResponseMessage Forbidden() => new(HttpStatusCode.Forbidden)
+    {
+        Content = new StringContent(
+            """{"error":{"message":"Model inference unavailable: only available on agentic harnesses"}}""")
     };
 
     // / <summary>Хендлер: GET models -> каталог, POST chat -> по счётчику вызовов.</summary>
@@ -78,9 +88,36 @@ public sealed class StickyFreeCatalogTests : IDisposable
                 ChatModels.Add(doc.RootElement.GetProperty("model").GetString() ?? "");
             }
             var code = ChatStatus?.Invoke(_chatCalls) ?? HttpStatusCode.OK;
-            return code == HttpStatusCode.OK
-                ? Ok(ChatBody)
-                : new HttpResponseMessage(code) { Content = new StringContent("limited") };
+            return code switch
+            {
+                HttpStatusCode.OK => Ok(ChatBody),
+                HttpStatusCode.Forbidden => Forbidden(),
+                _ => new HttpResponseMessage(code) { Content = new StringContent("limited") }
+            };
+        }
+    }
+
+    // / <summary>Вариант хендлера с СВОИМ каталогом GET models (фикстура инлайн).</summary>
+    private sealed class SingleCatalogHandler : HttpMessageHandler
+    {
+        private readonly string _catalog;
+        public List<string> ChatModels = new();
+
+        public SingleCatalogHandler(string catalog) => _catalog = catalog;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct)
+        {
+            if (r.Method == HttpMethod.Get)
+                return Ok(_catalog);
+
+            if (r.Content is not null)
+            {
+                var body = await r.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(body);
+                ChatModels.Add(doc.RootElement.GetProperty("model").GetString() ?? "");
+            }
+
+            return Ok(ChatBody);
         }
     }
 
@@ -192,6 +229,55 @@ public sealed class StickyFreeCatalogTests : IDisposable
 
         Assert.Contains("бесплатные модели исчерпаны", ex.Message);
         Assert.Equal(3, h.ChatModels.Count); // перебор ограничен тремя попытками
+    }
+
+    // r22h: 403 («only available on agentic harnesses») — отказ МОДЕЛИ, не
+    // ключа: Busy -> перебор продолжается следующей бесплатной. Прежний код
+    // падал HttpRequestException с ложным «ключ отклонён — выпустить новый»
+    // и хоронил всю ступень openrouter (живой лог 2026-10-30).
+    [Fact]
+    public async Task FreeCatalog_403_Is_Busy_And_Tries_Next_Model()
+    {
+        var h = new CatalogHandler { ChatStatus = call => call == 1 ? HttpStatusCode.Forbidden : HttpStatusCode.OK };
+        var log = Log();
+        var p = OpenRouterLike(log, h, sticky: Path.Combine(_dir, "state", "s403.json"));
+
+        var r = await p.CompleteAsync(new AiChatRequest("s", "u", 256));
+
+        Assert.Equal("vendor/free-zero-priced", r.Model); // вторая попытка состоялась
+        Assert.Equal(new[] { "vendor/free-big:free", "vendor/free-zero-priced" }, h.ChatModels);
+        Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("HTTP 403") && x.Contains("ключ ни при чём"));
+    }
+
+    // r22h (урок lyria): «наилучшей» не становится музыка (output_modalities
+    // ["audio"]), embeddings («text->embedding») и «free-вход, платный выход»
+    // (prompt "0", completion платный — та самая lyria отработала 402).
+    // Модель без architecture в каталоге проходит по страховочному списку имён.
+    [Fact]
+    public async Task FreeCatalog_Filters_NonChat_And_PaidOutput()
+    {
+        const string musicCatalog = """
+            {"data":[
+              {"id":"google/lyria-3-pro-preview","pricing":{"prompt":"0","completion":"0.016"},"context_length":1000000,"architecture":{"modality":"text->audio","output_modalities":["audio"]}},
+              {"id":"vendor/embedder","pricing":{"prompt":"0","completion":"0"},"context_length":8192,"architecture":{"modality":"text->embedding","output_modalities":["embedding"]}},
+              {"id":"vendor/free-chat:free","pricing":{"prompt":"0","completion":"0"},"context_length":65536,"architecture":{"modality":"text->text","output_modalities":["text"]}},
+              {"id":"vendor/plain-free:free","pricing":{"prompt":"0","completion":"0"},"context_length":4096}
+            ]}
+            """;
+        var stickyFile = Path.Combine(_dir, "state", "s-music.json");
+        var h = new SingleCatalogHandler(musicCatalog);
+        var log = Log();
+        var p = OpenRouterLike(log, h, sticky: stickyFile);
+
+        var r = await p.CompleteAsync(new AiChatRequest("s", "u", 256));
+
+        // Наилучшая из выживших = free-chat (65k); lyria/embedder мимо.
+        Assert.Equal("vendor/free-chat:free", r.Model);
+        Assert.Single(h.ChatModels);
+        // lyria отсечена ещё на pricing (выход платный — в счётчик чат-фильтра
+        // не попадает); чат-фильтр убрал embeddings-модель.
+        Assert.Contains(log.Logs.Cast<string>(), x =>
+            x.Contains("бесплатных моделей в каталоге: 2") && x.Contains("чат-фильтр убрал 1"));
     }
 
     [Fact]

@@ -307,6 +307,41 @@ public sealed class OpenAiCompatibleProviderTests : IDisposable
         Assert.DoesNotContain("enable_thinking", h.Bodies[0]);
     }
 
+    // r22h: при выключенном thinking qwen-семейству уходит и софт-ключ
+    // /no_think в системном промпте — его читает сам шаблон Qwen, поэтому
+    // он работает и там, где enable_thinking игнорируется (LM Studio).
+    [Fact]
+    public async Task NoThink_Appended_For_Qwen_When_Thinking_Disabled()
+    {
+        var h = new StubHandler(_ => Ok(ChatBody));
+        var log = Log();
+        var p = ModelScopeLike(log, h, requestLedger: null, disableThinking: true); // модель Qwen/Qwen3-32B
+
+        await p.CompleteAsync(new AiChatRequest("s", "u", 256));
+
+        Assert.Contains("\"enable_thinking\":false", h.Bodies[0]);
+        Assert.Contains("\\n/no_think", h.Bodies[0]); // \n внутри JSON-строки
+    }
+
+    // …а не-qwen моделям (llama, R1-дистилляты с чужим шаблоном) маркер
+    // не пишем — им он был бы лишним текстом в промпте.
+    [Fact]
+    public async Task NoThink_Not_Appended_For_Non_Qwen_Model()
+    {
+        var h = new StubHandler(_ => Ok(ChatBody));
+        var log = Log();
+        var p = new OpenAiCompatibleProvider(log, "lm-studio",
+            OpenAiCompatibleProvider.LmStudioBaseUrl,
+            model: "llama-8b-instruct", apiKey: null, requireApiKey: false,
+            disableThinking: true,
+            httpClient: new HttpClient(h) { BaseAddress = new Uri(OpenAiCompatibleProvider.LmStudioBaseUrl) });
+
+        await p.CompleteAsync(new AiChatRequest("s", "u", 256));
+
+        Assert.Contains("\"enable_thinking\":false", h.Bodies[0]);
+        Assert.DoesNotContain("/no_think", h.Bodies[0]);
+    }
+
     // Пустой content при ненулевом usage — сбой ступени, не результат:
     // reasoning-модель унесла ответ в reasoning_content. Provider обязан
     // кинуть BusyException (цепь переберёт следующих), а не отдать пустоту

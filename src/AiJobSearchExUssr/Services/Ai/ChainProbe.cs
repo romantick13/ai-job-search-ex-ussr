@@ -117,7 +117,11 @@ public static class ChainProbe
             return code switch
             {
                 >= 200 and < 300 => (new ChainProbeOutcome(true, $"HTTP {code} — каталог моделей живой ({secs})", sw.Elapsed), false),
-                401 or 403 => (new ChainProbeOutcome(false, $"HTTP {code} — ключ отклонён провайдером ({secs})", sw.Elapsed), false),
+                401 => (new ChainProbeOutcome(false, $"HTTP 401 — ключ отклонён провайдером ({secs})", sw.Elapsed), false),
+                // 403 на GET models — это доступ к КАТАЛОГУ (модель-специфичных
+                // отказов тут не бывает): ключ/тариф/регион. r22h: не «ключ
+                // отклонён» однозначно — провайдер может резать free-доступ политикой.
+                403 => (new ChainProbeOutcome(false, $"HTTP 403 — доступ запрещён (ключ/тариф/регион — см. политику провайдера) ({secs})", sw.Elapsed), false),
                 402 => (new ChainProbeOutcome(false, $"HTTP 402 — нет баланса/квоты, free-ключ не активирован ({secs})", sw.Elapsed), false),
                 429 => (new ChainProbeOutcome(false, $"HTTP 429 — лимит запросов исчерпан, попробуйте позже ({secs})", sw.Elapsed), false),
                 404 => (new ChainProbeOutcome(false, $"HTTP 404 — нет /models по адресу, проверьте BaseUrl ({secs})", sw.Elapsed), false),

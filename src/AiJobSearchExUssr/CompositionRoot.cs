@@ -257,7 +257,13 @@ internal static class CompositionRoot
                 baseUrl: Services.Ai.OpenAiCompatibleProvider.LmStudioBaseUrl,
                 modelEnvVar: "AIJOB_LMSTUDIO_MODEL",
                 qualityRank: 7,
-                requireApiKey: false);
+                requireApiKey: false,
+                // r22h: гибридные Qwen локально думают по умолчанию — мелкие
+                // стадии получают пустой content (qwen3.5-9b, лог 2026-10-30).
+                // LM Studio поле enable_thinking молча игнорирует, но софт-ключ
+                // /no_think из шаблона Qwen работает; для llama/R1 поле
+                // безвредно (игнорируется/лишний параметр не виден).
+                disableThinking: true);
             return new Services.Ai.LmStudioBootstrappingProvider(inner, cli, log);
         });
         services.AddSingleton<Services.Ai.LmStudioCli>();

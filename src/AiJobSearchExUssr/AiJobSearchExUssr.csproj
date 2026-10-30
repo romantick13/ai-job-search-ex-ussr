@@ -10,6 +10,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AiJobSearchExUssr</RootNamespace>
     <AssemblyName>AiJobSearchExUssr</AssemblyName>
+    <!-- Версия программы (решение владельца 2026-10-30): первая публичная — 1.0.
+         Видна в свойствах exe (Проводник → Подробно) и в InformationalVersion. -->
+    <Version>1.0.0</Version>
     <!-- Compiled bindings по умолчанию (RFC-001 §2: x:DataType) -->
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <!-- WP-R6.1 (решение владельца 2026-10-26): иконка приложения (images.jpg

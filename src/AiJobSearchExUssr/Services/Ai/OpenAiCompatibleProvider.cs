@@ -14,8 +14,20 @@ namespace AiJobSearchExUssr.Services.Ai;
 // ============================================================================
 // OpenAiCompatibleProvider — один класс на все OpenAI-совместимые
 // эндпоинты продуктовой цепи: ModelScope,
-// SiliconFlow, OpenRouter, OrcaRouter, lm-studio (Bionic). Паттерн Llm7Provider: локальные лимит-регистры + 429/402
+// SiliconFlow, OpenRouter, OrcaRouter, lm-studio (Bionic). Паттерн Llm7Provider: локальные лимит-регистры + 429/402/403
 // = AiProviderBusyException (фолбэк цепи) + громкий протокол каждого исхода.
+
+// УРОКИ ПРОТОКОЛА 2026-10-30 (прогон с провалом всей цепи на QueryExpansion):
+// 1) free-каталог OpenRouter звал «наилучшей» музыкальную lyria (pricing
+//    prompt "0", выход платный) -> 402. Бесплатность = ноль на входе И выходе,
+//    архитектура — только текст (музыка/audio/embeddings мимо).
+// 2) 403 «only available on agentic harnesses» — отказ МОДЕЛИ, не ключа
+//    (401 был бы про ключ): Busy -> перебор продолжается следующей моделью.
+//    Прежний текст зря обвинял ключ и звал выпускать новый.
+// 3) reasoning-модели (qwen3.5 локально, gpt-oss на llm7) при мелком
+//    max_tokens сжигают бюджет на размышления — content пуст. Лечится
+//    каскадом: /no_think qwen-семейству, Reasoning: low для gpt-oss,
+//    бутстрап lm-studio обходит reasoning-семьи, MaxTokens стадии с запасом.
 
 // ПЕРВИОИСТОЧНИКИ ЛИМИТОВ (цитаты с официальных страниц провайдеров):
 // • ModelScope: «2,000 API Inference calls per day» на аккаунт, «200 calls
@@ -269,8 +281,8 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
     }
 
     // FLOW: оркестратор: обычный профиль -> один POST; агрегатор с free-каталогом ->
-    // sticky первой -> перебор бесплатных (до 3): 429/402 на модель = сброс липучести
-    // и следующая; успех -> липучесть обновлена. Прочие сбои — наружу
+    // sticky первой -> перебор бесплатных (до 3): 429/402/403 на модель = сброс
+    // липучести и следующая; успех -> липучесть обновлена. Прочие сбои — наружу
     // STATE: _freeCatalogCache — каталог один GET на процесс; _sticky — файл под её _gate
     private async Task<AiChatResult> SendChatAsync(AiChatRequest request, CancellationToken ct)
     {
@@ -301,8 +313,10 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
             }
             catch (AiProviderBusyException)
             {
+                // сюда попадают и 429/402, и 403 «модель недоступна аккаунту»,
+                // и пустой content — во всех случаях перебор идёт дальше.
                 tried.Add(model);
-                _sticky?.Clear($"429/402 на {model}"); // перебор начнётся заново со следующей
+                _sticky?.Clear($"429/402/403 на {model}"); // перебор начнётся заново со следующей
             }
         }
         var msg = $"{Name}: бесплатные модели исчерпаны ({string.Join(" -> ", tried)})";
@@ -332,8 +346,10 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
     }
 
     // / <summary>Бесплатные модели каталога (GET models, один GET на процесс):
-    // / id с суффиксом :free или pricing.prompt = "0"; «наилучшая» = больший
-    // / context_length. Пусто = фолбэк цепи (наверх решает SendChatAsync).</summary>
+    // / id с суффиксом :free или pricing (prompt и completion оба "0");
+    // / только чат-модели (музыка/audio/embeddings мимо — урок lyria);
+    // / «наилучшая» = больший context_length. Пусто = фолбэк цепи
+    // / (наверх решает SendChatAsync).</summary>
     // STATE: _freeCatalogCache после первого успеха; сеть/парсинг — ловим в WARN
     private async Task<List<string>> GetFreeCatalogAsync(CancellationToken ct)
     {
@@ -354,6 +370,7 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
 
             using var doc = JsonDocument.Parse(body);
             var free = new List<(string Id, long Ctx)>();
+            var skipped = 0;
             foreach (var m in doc.RootElement.GetProperty("data").EnumerateArray())
             {
                 var id = m.GetProperty("id").GetString() ?? "";
@@ -361,14 +378,28 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
                 // Решение: суффикс «:free» — фишка OpenRouter
                 // («это у опенрутера есть»). orcarouter выведен из free-каталога
                 // (CompositionRoot: freeCatalog: false), -матч «-free» снят.
+                // Урок 2026-10-30: бесплатность = ноль на входе И на выходе.
+                // lyria прошла с prompt "0" и платным выходом -> 402 на первом же
+                // запросе. Суффикс :free честнее — шлюз сам гарантирует оба нуля.
                 var isFree = id.EndsWith(":free", StringComparison.OrdinalIgnoreCase);
                 long ctx = 0;
-                if (m.TryGetProperty("pricing", out var pricing) &&
+                if (!isFree && m.TryGetProperty("pricing", out var pricing) &&
                     pricing.TryGetProperty("prompt", out var prompt) &&
                     prompt.ValueKind == JsonValueKind.String &&
-                    prompt.GetString() is "0" or "0.0" or "0.0000")
+                    prompt.GetString() is "0" or "0.0" or "0.0000" &&
+                    pricing.TryGetProperty("completion", out var completion) &&
+                    completion.ValueKind == JsonValueKind.String &&
+                    completion.GetString() is "0" or "0.0" or "0.0000")
                     isFree = true;
                 if (!isFree) continue;
+                // Урок 2026-10-30: только ЧАТ-модели — музыкальная lyria дошла
+                // до «наилучшей» и отработала 402. Смотрим архитектуру каталога
+                // (музыка/audio/embeddings мимо), по имени — страховочный список.
+                if (!IsChatArchitecture(m, id))
+                {
+                    skipped++;
+                    continue;
+                }
                 if (m.TryGetProperty("context_length", out var cl) && cl.ValueKind == JsonValueKind.Number)
                     ctx = cl.TryGetInt64(out var v) ? v : 0;
                 free.Add((id, ctx));
@@ -380,7 +411,8 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
             {
                 _freeCatalogCache = ids;
                 _log.LogSuccess($"[{Name}] бесплатных моделей в каталоге: {ids.Count}; " +
-                                $"наилучшая: {ids[0]}" + (ids.Count > 1 ? $", далее: {string.Join(", ", ids.Skip(1).Take(2))}" : ""));
+                                $"наилучшая: {ids[0]}" + (ids.Count > 1 ? $", далее: {string.Join(", ", ids.Skip(1).Take(2))}" : "") +
+                                (skipped > 0 ? $"; чат-фильтр убрал {skipped} (музыка/audio/embeddings/платный выход)" : ""));
             }
             return ids;
         }
@@ -392,8 +424,9 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
         }
     }
 
-    // FLOW: payload (enable_thinking по профилю) -> POST chat/completions -> разбор choices/usage;
-    // 429/402 = AiProviderBusyException с подсказкой busySolution (цикл free-каталога перехватывает)
+    // FLOW: payload (enable_thinking по профилю + /no_think qwen) -> POST
+    // chat/completions -> разбор choices/usage; 429/402/403 =
+    // AiProviderBusyException с подсказкой busySolution (цикл free-каталога перехватывает)
     private async Task<AiChatResult> PostChatAsync(AiChatRequest request, string model, CancellationToken ct,
         string busySolution)
     {
@@ -402,12 +435,24 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
                  $"промпт: система {request.SystemPrompt.Length} симв + пользователь {request.UserPrompt.Length} симв" +
                  (_reqLedger is null ? "" : $"; запросов сегодня: {_reqLedger.UsedToday:N0}/{_reqLedger.Cap:N0}"));
 
+        // r22h: гибридные Qwen (qwen3/3.5) думают по умолчанию и при мелком
+        // max_tokens уносят ВЕСЬ ответ в reasoning_content (живой лог
+        // 2026-10-30: qwen3.5-9b в LM Studio, 120 ток — content пуст).
+        // Поле enable_thinking читают не все серверы (LM Studio молча
+        // игнорирует); /no_think — софт-ключ из самого шаблона Qwen,
+        // работает через любой OpenAI-совместимый сервер. Клеим к системному
+        // промпту ТОЛЬКО qwen-семейству и только в профилях с выключенным
+        // thinking — у llama/R1 маркер был бы просто лишним текстом.
+        var system = request.SystemPrompt;
+        if (_disableThinking && model.Contains("qwen", StringComparison.OrdinalIgnoreCase))
+            system += "\n/no_think";
+
         var payload = JsonSerializer.Serialize(new
         {
             model = model,
             messages = new object[]
             {
-                new { role = "system", content = request.SystemPrompt },
+                new { role = "system", content = system },
                 new { role = "user", content = request.UserPrompt }
             },
             max_tokens = request.MaxTokens,
@@ -467,23 +512,36 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
                              $"решение: {busySolution}");
                 throw new AiProviderBusyException(msg);
             }
-            // 401/403 = ключ отклонила СТОРОНА
+            // 401 = ключ отклонила СТОРОНА
             // провайдера (протух/отозван/лишний символ) — в конфиге он есть,
             // иначе сюда не дошли бы (нет ключа = BusyException до запроса).
             // Честная причина вместо «сбой», цепь дальше переберёт остальных.
-            if (resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            if (resp.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _log.LogError($"[{Name}] сбой: HTTP {(int)resp.StatusCode}: {shortBody}; " +
+                _log.LogError($"[{Name}] сбой: HTTP 401: {shortBody}; " +
                               "решение: ключ отклонён на стороне провайдера (истёк срок/" +
                               "отозван/скопирован с лишним символом) — выпустить новый в " +
                               "кабинете провайдера и ввести в «Настройках»; следующие " +
                               "провайдеры цепи перебираются сами");
-            }
-            else
-            {
-                _log.LogError($"[{Name}] сбой: HTTP {(int)resp.StatusCode}: {shortBody}; решение: исключение наружу — цепь решает");
+                throw new HttpRequestException($"{Name}: HTTP 401: {shortBody}");
             }
 
+            // r22h: 403 — НЕ про ключ (401 был бы про ключ). 403 = «доступ к ЭТОЙ
+            // модели аккаунту отказан»: модель только для agentic-платформ
+            // (живой лог 2026-10-30: thinkingmachines/inkling-small:free —
+            // «only available on agentic harnesses»), политика данных, региональный
+            // запрет. Прежний текст зря обвинял ключ и звал выпускать новый —
+            // BusyException честно отправляет перебор к следующей модели каталога.
+            if (resp.StatusCode == HttpStatusCode.Forbidden)
+            {
+                var msg = "HTTP 403 — провайдер отказал в доступе к модели этому аккаунту/тарифу " +
+                          "(только agentic-платформы, политика данных или региональный запрет); " +
+                          "ключ ни при чём (401 был бы про ключ)";
+                _log.LogWarn($"skip: {Name} — {msg}; тело: {shortBody}; решение: {busySolution}");
+                throw new AiProviderBusyException(msg);
+            }
+
+            _log.LogError($"[{Name}] сбой: HTTP {(int)resp.StatusCode}: {shortBody}; решение: исключение наружу — цепь решает");
             throw new HttpRequestException($"{Name}: HTTP {(int)resp.StatusCode}: {shortBody}");
         }
 
@@ -549,6 +607,44 @@ public sealed class OpenAiCompatibleProvider : IAiChatProvider
                         (_reqLedger is null ? "" : $"; запросов сегодня: {_reqLedger.UsedToday:N0}/{_reqLedger.Cap:N0}"));
         return new AiChatResult(content, model, new AiChatUsage(pTok, cTok), Name, sw.Elapsed);
     }
+
+    // r22h: чат-модель ли? Урок 2026-10-30 — музыкальная lyria прошла в
+    // «наилучшие» и отработала 402. Чат = архитектура каталога отдаёт ТЕКСТ:
+    // output_modalities ровно ["text"] (у музыки там ["audio"], у
+    // embeddings — ["embedding"]) либо строка modality «…->text» («text->audio»,
+    // «text->embedding» мимо). Архитектуры нет вовсе — страховочный список
+    // по имени (служебные семьи). Не чат-модель — не кандидат перебора.
+    internal static bool IsChatArchitecture(JsonElement m, string id)
+    {
+        if (m.TryGetProperty("architecture", out var arch) && arch.ValueKind == JsonValueKind.Object)
+        {
+            if (arch.TryGetProperty("output_modalities", out var outs) && outs.ValueKind == JsonValueKind.Array)
+            {
+                var hasText = false;
+                foreach (var o in outs.EnumerateArray())
+                {
+                    if (o.ValueKind != JsonValueKind.String) continue;
+                    if (o.GetString() == "text") hasText = true;
+                    else return false; // audio/image/video — не текстовая модель
+                }
+
+                if (!hasText) return false;
+            }
+            else if (arch.TryGetProperty("modality", out var mod) && mod.ValueKind == JsonValueKind.String)
+            {
+                // «text->text» — чат; «text->audio», «text->image», «text->embedding» — нет.
+                if (!mod.GetString()!.EndsWith("->text", StringComparison.OrdinalIgnoreCase)) return false;
+            }
+        }
+
+        foreach (var marker in NonChatCatalogMarkers)
+            if (id.Contains(marker, StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    // Служебные семьи в имени модели — даже без architecture в каталоге.
+    private static readonly string[] NonChatCatalogMarkers =
+        { "whisper", "tts", "embed", "rerank", "lyria", "dall-e", "imagen", "veo", "sora", "flux", "music", "voice", "speech" };
 
     // content у OpenAI-совместимых шлюзов бывает строкой, а бывает массивом
     // частей [{type:"text", text:"..."}] (multi-part формат); reasoning

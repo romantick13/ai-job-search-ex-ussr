@@ -80,10 +80,9 @@ jobs:
             exit 1
           fi
 
-  # Job активируется при наличии решения в репо (src/ai-job-search-ex-ussr.sln).
+  # Сборка и тесты: решение src/ai-job-search-ex-ussr.sln всегда в репо.
   build-test:
     name: build + test
-    if: ${{ hashFiles('**/*.sln') != '' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
