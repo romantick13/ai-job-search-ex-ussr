@@ -3,24 +3,24 @@ using AiJobSearchBy.Models;
 
 namespace AiJobSearchBy.Portals;
 
-// FLOW: polite-crawl (RFC-003 §2.1/§2.10): паузы между запросами + рандомизация
+// FLOW: polite-crawl: паузы между запросами + рандомизация
 // задержек, уважение Retry-After/X-RateLimit-Remaining, инкрементальный since,
 // лимит страниц за прогон, per-portal breaker после N подряд падений парсинга.
-// Донор (исходники Atlas получены, Task 51): цикл и лимиты — по
-// GitHubHarvesterService.cs; семантика квоты X-RateLimit-Remaining < 20 →
-// «останавливаюсь до следующего раза» (стоп прогона без ошибки) — вербатим
-// донора (строки 89–94), порог 20 — донорская константа.
-// РАСШИРЕНИЯ против донора (специфицированы RFC-003 §2.10, не донор):
+// Цикл и лимиты — честный polite-crawl; семантика квоты
+// X-RateLimit-Remaining < 20 →
+// «останавливаюсь до следующего раза» (стоп прогона без ошибки),
+// порог 20 — константа.
+// РАСШИРЕНИЯ против базовой схемы:
 // джиттер ±30%, Retry-After в формате HTTP-даты, breaker после N падений.
-// РЕТРАИ 403/429 (donor SendWithRetryAsync) — НЕ здесь: решение владельца —
-// ретраи/backoff/кулдауны в ScrapeOrchestrator (WP-P1+), порт из донора.
-// robots.txt решает карточка §2.11 (forbidden = адаптера не существует).
+// РЕТРАИ 403/429 — НЕ здесь:
+// ретраи/backoff/кулдауны — в ScrapeOrchestrator.
+// robots.txt решает карточка портала (forbidden = адаптера не существует).
 // THREAD: прогон строго последовательный (architecture.md §6) — состояние без
 // блокировок; конкурентный вызов одного адаптера не предполагается.
 public abstract class ScrapePortalBase : PortalBase
 {
-    // Скелетные дефолты вежливости; адаптер уточняет их по карточке §2.11
-    // (лимиты почти везде неизвестны — консервативная база, RFC-003 §2.10).
+    // Скелетные дефолты вежливости; адаптер уточняет их по карточке портала
+    // (лимиты почти везде неизвестны — консервативная база).
     public sealed record PolitenessOptions(
         TimeSpan MinDelay,
         double JitterFraction,
@@ -54,7 +54,7 @@ public abstract class ScrapePortalBase : PortalBase
         _options = options ?? PolitenessOptions.Default;
     }
 
-    // Breaker открыт → портал вне цепи до ручного подъёма (kill-switch UI, §2.1).
+    // Breaker открыт → портал вне цепи до ручного подъёма (kill-switch в UI).
     public bool IsBreakerOpen => _breakerOpen;
 
     // Мостики для юнит-тестов (InternalsVisibleTo AiJobSearchBy.Tests).
@@ -62,7 +62,7 @@ public abstract class ScrapePortalBase : PortalBase
 
     internal int ConsecutiveParseFailures => _consecutiveParseFailures;
 
-    // Инкрементальный since: «выдай изменившееся с последнего прогона» (§2.1).
+    // Инкрементальный since: «выдай изменившееся с последнего прогона».
     // Адаптер читает в Build*/Parse* и сдвигает после успешного прогона.
     protected DateTimeOffset Since { get; set; }
 
@@ -72,20 +72,20 @@ public abstract class ScrapePortalBase : PortalBase
     protected abstract string? GetNextPageUrl(string pageHtml, string pageUrl);
 
     // Разбор страницы → вакансии; сменившаяся вёрстка = ParseFailedException
-    // (golden-фикстура разметки в тестах делает это красным тестом, §2.10).
+    // (golden-фикстура разметки в тестах делает это красным тестом).
     protected abstract Task<IReadOnlyList<JobPosting>> ParsePageAsync(
         string pageHtml, string pageUrl, CancellationToken ct);
 
     // Скачивание страницы с вежливой паузой; адаптер может переопределить
     // (браузерные заголовки, сессии) — база отдаёт общий цикл.
-    // null = донорская семантика «останавливаюсь до следующего раза»
+    // null = семантика «останавливаюсь до следующего раза»
     // (квота близка к исчерпанию) — собранное возвращается без ошибки.
     protected virtual async Task<string?> FetchPageAsync(string url, CancellationToken ct)
     {
         await PoliteWaitAsync(ct).ConfigureAwait(false);
         using var response = await Http.GetAsync(url, ct).ConfigureAwait(false);
 
-        // Заголовки читаем ДО проверки статуса: 429 тоже несёт Retry-After (§2.10).
+        // Заголовки читаем ДО проверки статуса: 429 тоже несёт Retry-After.
         var quotaLow = ObserveRateLimitHeaders(response);
         response.EnsureSuccessStatusCode();
         if (quotaLow)
@@ -100,7 +100,7 @@ public abstract class ScrapePortalBase : PortalBase
     {
         if (_breakerOpen)
         {
-            // НИ-2: осознанный пропуск с причиной — до исключения, чтобы отказ
+            // осознанный пропуск с причиной — до исключения, чтобы отказ
             // был виден в протоколе независимо от того, кто поймает исключение.
             Log.LogWarn($"skip: портал {Descriptor.Id} — обход «{query}» не начат: "
                 + $"breaker открыт после {_options.BreakerThreshold} подряд падений парсинга");
@@ -117,12 +117,12 @@ public abstract class ScrapePortalBase : PortalBase
             var html = await FetchPageAsync(url, ct).ConfigureAwait(false);
             if (html is null)
             {
-                // Донорская семантика: «осталось N запросов из лимита —
-                // останавливаюсь до следующего раза» (Atlas, строки 89–94).
-                // НИ-2: остановка — осознанная, причина в протоколе.
+                // Семантика квоты: «осталось N запросов из лимита —
+                // останавливаюсь до следующего раза».
+                // остановка — осознанная, причина в протоколе.
                 Log.LogWarn($"skip: портал {Descriptor.Id} — квота близка к исчерпанию "
                     + $"(X-RateLimit-Remaining < {_options.QuotaStopThreshold}), "
-                    + "останавливаюсь до следующего раза (донорская семантика, собранное отдаю без ошибки)");
+                    + "останавливаюсь до следующего раза, собранное отдаю без ошибки)");
                 break;
             }
 
@@ -133,7 +133,7 @@ public abstract class ScrapePortalBase : PortalBase
             }
             catch (ParseFailedException ex)
             {
-                // НИ-1: что делали / что поймали / что решили (re-throw —
+                // что делали / что поймали / что решили (re-throw —
                 // оркестратор решает судьбу прогона, причина уже в протоколе).
                 Log.LogError($"портал {Descriptor.Id}: разбор страницы {page} упал — "
                     + $"{ex.Message}; решение: наверх (оркестратору), встречено подряд: "
@@ -159,16 +159,16 @@ public abstract class ScrapePortalBase : PortalBase
         _consecutiveParseFailures++;
         if (_consecutiveParseFailures >= _options.BreakerThreshold)
         {
-            // §2.10: авто-выключение после N подряд падений; подъём — вручную
-            // (per-portal kill-switch UI, §2.1). Событие — в протокол (НИ-4).
+            // Авто-выключение после N подряд падений; подъём — вручную
+            // (per-portal kill-switch в UI). Событие — в протокол.
             _breakerOpen = true;
             Log.LogError($"портал {Descriptor.Id}: BREAKER ОТКРЫТ после "
                 + $"{_options.BreakerThreshold} подряд падений парсинга — портал вне цепи "
-                + "до ручного подъёма (kill-switch UI, §2.1)");
+                + "до ручного подъёма (kill-switch UI)");
         }
     }
 
-    // Пауза = MinDelay с джиттером ±JitterFraction (рандомизация задержек, §2.1),
+    // Пауза = MinDelay с джиттером ±JitterFraction (рандомизация задержек),
     // затем добор до окна Retry-After/X-RateLimit. В тестах MinDelay = 0.
     protected async Task PoliteWaitAsync(CancellationToken ct)
     {
@@ -190,11 +190,11 @@ public abstract class ScrapePortalBase : PortalBase
         _lastFetchAt = DateTimeOffset.UtcNow;
     }
 
-    // Уважение заголовков (§2.1): Retry-After (секунды или HTTP-дата) задаёт
-    // окно ожидания; X-RateLimit-Remaining < QuotaStopThreshold (донор: < 20) —
-    // сигнал «остановить прогон» (вербатим семантики Atlas). Возвращает true,
-    // если прогон надо остановить. HTTP-дата Retry-After и пауза при == 0 —
-    // наши расширения (RFC-003 §2.10), у донора только секунды и стоп < 20.
+    // Уважение заголовков: Retry-After (секунды или HTTP-дата) задаёт
+    // окно ожидания; X-RateLimit-Remaining < QuotaStopThreshold —
+    // сигнал «остановить прогон». Возвращает true,
+    // если прогон надо остановить. HTTP-дата Retry-After и пауза при квоте == 0 —
+    // наши расширения; базовая схема знает только секунды и стоп < 20.
     protected bool ObserveRateLimitHeaders(HttpResponseMessage response)
     {
         var stopRun = false;
@@ -206,7 +206,7 @@ public abstract class ScrapePortalBase : PortalBase
             {
                 _respectUntil = Max(_respectUntil, DateTimeOffset.UtcNow + TimeSpan.FromSeconds(seconds));
                 Log.LogWarn($"skip: портал {Descriptor.Id} — Retry-After: {seconds} с, "
-                    + "откладываю запросы до конца окна (§2.10)");
+                    + "откладываю запросы до конца окна");
             }
             else if (DateTimeOffset.TryParse(
                 raw,
@@ -216,28 +216,28 @@ public abstract class ScrapePortalBase : PortalBase
             {
                 _respectUntil = Max(_respectUntil, until);
                 Log.LogWarn($"skip: портал {Descriptor.Id} — Retry-After (HTTP-дата): {until:u}, "
-                    + "откладываю запросы до конца окна (§2.10)");
+                    + "откладываю запросы до конца окна");
             }
         }
 
         if (response.Headers.TryGetValues("X-RateLimit-Remaining", out var remainingHeader)
             && int.TryParse(remainingHeader.FirstOrDefault(), out var left))
         {
-            // Донорская логика (Atlas GitHubHarvesterService:89–94): близко к
-            // исчерпанию → не жадничаем, останавливаемся до следующего раза.
+            // Близко к исчерпанию квоты → не жадничаем,
+            // останавливаемся до следующего раза.
             if (left < _options.QuotaStopThreshold)
             {
                 Log.LogWarn($"skip: портал {Descriptor.Id} — X-RateLimit-Remaining: {left} "
-                    + $"(< {_options.QuotaStopThreshold}), сигнал стоп-прогона (донорская семантика)");
+                    + $"(< {_options.QuotaStopThreshold}), сигнал стоп-прогона");
                 stopRun = true;
             }
 
-            // Наше расширение (§2.10): == 0 дополнительно открывает окно ожидания.
+            // Наше расширение: квота == 0 дополнительно открывает окно ожидания.
             if (left <= 0)
             {
                 _respectUntil = Max(_respectUntil, DateTimeOffset.UtcNow + _options.MinDelay);
                 Log.LogWarn($"skip: портал {Descriptor.Id} — квота == 0, окно ожидания "
-                    + $"{_options.MinDelay.TotalSeconds:0} с (наше расширение §2.10)");
+                    + $"{_options.MinDelay.TotalSeconds:0} с");
             }
         }
 

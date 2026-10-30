@@ -6,8 +6,8 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: ResumeAdaptationService (WP-U1) — промпт несёт резюме + требования
-// работодателя (решение владельца); AdaptAsync идёт по цепи ResumeAdaptation
+// FLOW: ResumeAdaptationService — промпт несёт резюме + требования
+// работодателя; AdaptAsync идёт по цепи ResumeAdaptation
 // (TaskRoutingPolicy: сильные модели первыми), занятость — фолбэк.
 // THREAD: FakeProvider вместо сети; SilentLog для проверок НИ.
 public class ResumeAdaptationServiceTests
@@ -51,7 +51,7 @@ public class ResumeAdaptationServiceTests
         // Правило правды: модель не выдумывает опыт.
         Assert.Contains("не выдумывай", system);
 
-        // Требование владельца: резюме + требования работодателя в одном промпте.
+        // Требование резюме + требования работодателя в одном промпте.
         Assert.Contains("моё резюме: 5 лет C#", user);
         Assert.Contains("Senior C# Developer", user);
         Assert.Contains("Acme Corp", user);
@@ -69,9 +69,85 @@ public class ResumeAdaptationServiceTests
 
         var (_, user) = ResumeAdaptationService.BuildPrompt("резюме", posting);
 
-        // Обрезка: экономия дневных лимитов бесплатной цепи.
-        Assert.True(user.Length < ResumeAdaptationService.MaxVacancyDescriptionChars + 400);
+        // Обрезка: экономия дневных лимитов бесплатной цепи. Запас +700 —
+        // шапка вакансии (название/компания/ссылка/язык ) фиксированная.
+        Assert.True(user.Length < ResumeAdaptationService.MaxVacancyDescriptionChars + 700);
         Assert.Contains("(обрезано)", user);
+    }
+
+
+    // Язык адаптации = язык вакансии: если сама вакансия пишется на
+    // английском — адаптация на английском, если на русском —
+    // на русском. Язык определяется по тексту карточки и идёт в
+    // промпт жёстким правилом.
+
+    [Fact]
+    public void DetectLanguage_RussianVacancy()
+    {
+        var posting = Posting() with
+        {
+            Title = "Ведущий администратор сетей",
+            Company = "ОАО АЛЕВКУРП",
+            DescriptionMd = "Опыт 3-6 лет. Обслуживание серверов и сетей предприятия.",
+        };
+
+        Assert.Equal(VacancyLanguage.Russian, ResumeAdaptationService.DetectLanguage(posting));
+    }
+
+    [Fact]
+    public void DetectLanguage_EnglishVacancy()
+    {
+        var posting = Posting() with
+        {
+            Title = "Senior System Administrator",
+            Company = "Acme Corp",
+            DescriptionMd = "We are looking for an experienced administrator. " +
+                            "Requirements: Windows Server, networking, VMware.",
+        };
+
+        Assert.Equal(VacancyLanguage.English, ResumeAdaptationService.DetectLanguage(posting));
+    }
+
+    [Fact]
+    public void DetectLanguage_AbbreviationsDoNotFlipRussian()
+    {
+        // Русская карточка с латинскими аббревиатурами (C#, MS SQL, VMware)
+        // должна остаться русской — кириллицы больше.
+        var posting = Posting() with
+        {
+            Title = "Системный администратор (C#, MS SQL)",
+            DescriptionMd = "Требования: Windows Server, VMware, Hyper-V.",
+        };
+
+        Assert.Equal(VacancyLanguage.Russian, ResumeAdaptationService.DetectLanguage(posting));
+    }
+
+    [Fact]
+    public void BuildPrompt_LanguageRule_GoesToBothPrompts()
+    {
+        var (system, user) = ResumeAdaptationService.BuildPrompt("резюме", Posting());
+
+        // Русская карточка из Posting: правило — в системе и в задаче.
+        Assert.Contains("язык ответа = язык вакансии", system);
+        Assert.Contains("ЯЗЫК ВАКАНСИИ: русский", user);
+        Assert.Contains("на русском языке полностью", user);
+    }
+
+    [Fact]
+    public void BuildPrompt_EnglishVacancy_RequiresEnglishResume()
+    {
+        var posting = Posting() with
+        {
+            Title = "Senior DevOps Engineer",
+            Company = "Global Soft",
+            DescriptionMd = "Build and maintain CI/CD pipelines.",
+        };
+
+        var (system, user) = ResumeAdaptationService.BuildPrompt("резюме", posting);
+
+        Assert.Contains("на английском", system);
+        Assert.Contains("ЯЗЫК ВАКАНСИИ: английский", user);
+        Assert.Contains("на английском языке полностью", user);
     }
 
     [Fact]
@@ -96,7 +172,7 @@ public class ResumeAdaptationServiceTests
     [Fact]
     public async Task AdaptAsync_ChainExhausted_ReturnsNull_WithLog()
     {
-        // НИ-1: исчерпание цепи — громкое событие протокола, стадия честно null.
+        // исчерпание цепи — громкое событие протокола, стадия честно null.
         var log = new SilentLog();
         var busy = new BusyProvider();
         var routing = new TaskRoutingPolicy(log, new IAiChatProvider[] { busy });

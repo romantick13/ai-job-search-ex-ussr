@@ -1,0 +1,78 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="420" d:DesignHeight="520"
+        x:Class="AiJobSearchBy.Views.GeoCountriesWindow"
+        Title="Страны удалёнки — ai-job-search-by"
+        Width="420" MinWidth="380" Height="560" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="#0A1A14"
+        FontFamily="Segoe UI, Noto Sans, sans-serif">
+
+ <!-- -> (: сначала «все члены ООН»,
+ после SAP-прогона — «отсекать неМинск/неБеларусь/неРоссия»): модал со
+ списком разрешённых стран. Одна строка — одна страна. Пусто = ДЕФОЛТ
+ (Беларусь + Россия); полный список («Вернуть все страны») = весь мир.
+ Стиль — Emerald Crystal (как SettingsWindow). -->
+  <Window.Resources>
+    <SolidColorBrush x:Key="GlassBrush" Color="#E61A2E26"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#50FFB0"/>
+    <SolidColorBrush x:Key="DimBrush" Color="#8FB8A8"/>
+    <SolidColorBrush x:Key="CardEdge" Color="#243D34"/>
+  </Window.Resources>
+
+  <Window.Styles>
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Border.glass">
+      <Setter Property="Background" Value="{StaticResource GlassBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource CardEdge}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="14"/>
+      <Setter Property="BoxShadow" Value="5 5 15 0 #050C0A, -5 -5 15 0 #243D34"/>
+    </Style>
+    <Style Selector="TextBlock.panel-title">
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+    </Style>
+    <Style Selector="TextBlock.hint">
+      <Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="Foreground" Value="{StaticResource DimBrush}"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="12,5"/>
+    </Style>
+  </Window.Styles>
+
+  <Border Classes="glass" Margin="12" Padding="14">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="0,0,0,0">
+      <StackPanel Grid.Row="0" Spacing="2">
+        <TextBlock Text="Страны удалёнки" FontSize="16" FontWeight="Bold"
+                   Foreground="{StaticResource AccentBrush}"/>
+        <TextBlock Classes="hint"
+                   Text="Разрешённые страны вакансий: одна строка — одна страна. Дефолт — Беларусь и Россия: всё остальное (Ташкент, Алматы и прочее) прячется, удалёнка проходит внутри этих стран. Убери Россию — останутся только Беларусь и Минск. «Вернуть все страны» = весь мир (ничего не прячется). Офисные вакансии, как и раньше, фильтруются полями «Страна/Город»."/>
+      </StackPanel>
+
+      <TextBox Grid.Row="2" x:Name="CountriesText" Margin="0,8,0,0"
+               AcceptsReturn="True" TextWrapping="NoWrap"
+               FontSize="12" MinHeight="280"
+               PlaceholderText="пусто = дефолт (Беларусь + Россия)"/>
+
+      <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" Spacing="8">
+        <Button x:Name="RestoreAllButton" Content="Вернуть все страны"
+                ToolTip.Tip="Сбросить список к полному (все члены ООН) = весь мир"/>
+        <Button x:Name="DoneButton" Content="Готово" FontWeight="SemiBold"
+                ToolTip.Tip="Сохранить список и закрыть"/>
+      </StackPanel>
+
+      <TextBlock Grid.Row="4" x:Name="StatusLine" Classes="hint" Margin="0,6,0,0"
+                 Text="Пусто = дефолт (Беларусь + Россия); полный список = весь мир."/>
+    </Grid>
+  </Border>
+</Window>

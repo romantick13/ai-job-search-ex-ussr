@@ -12,6 +12,9 @@
     <AssemblyName>AiJobSearchBy</AssemblyName>
     <!-- Compiled bindings по умолчанию (RFC-001 §2: x:DataType) -->
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- WP-R6.1 (решение владельца 2026-10-26): иконка приложения (images.jpg
+         -> Assets/app.ico) — на exe в Проводнике и дефолт таскбара. -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,7 +26,12 @@
     <!-- DB (канон: SQLite + Dapper, без EF) -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.2.0" />
     <PackageReference Include="PdfPig" Version="0.1.16" />
+    <!-- Шаг 3: overlay чужого PDF. PDFsharp 6.1.1 = последняя MIT-версия
+         без runtime-лицензии (гейт введён в 6.2.0); 6.x тянет ImageSharp
+         с NU1903, потому пин ровно 6.1.1 (THIRD-PARTY-NOTICES §4). -->
+    <PackageReference Include="PDFsharp" Version="6.1.1" />
     <PackageReference Include="QuestPDF" Version="2026.8.0" />
     <!-- Секьюрити-пин транзитива (NU1903, GHSA-2m69-gcr7-jv3q):
          Microsoft.Data.Sqlite 10.0.10 тянет bundle 2.1.11; поднимаем до
@@ -36,6 +44,18 @@
   <ItemGroup>
     <!-- Внутренние типы (CompositionRoot) видны тестам -->
     <InternalsVisibleTo Include="AiJobSearchBy.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WP-R6.1 (рецепт UniD): иконка и В DLL (AvaloniaResource для
+         avares:// — её читают окно и трей через AssetLoader.Open), и НА
+         ДИСК (Content, рядом с exe — штатная копия для отладки/ручного
+         запуска). images.jpg в Assets — исходник, в сборку попадает
+         нейтрально (владелец хранит его сам). -->
+    <Content Include="Assets\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
   <ItemGroup>

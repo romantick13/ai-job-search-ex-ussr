@@ -4,7 +4,7 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: PdfExportService (WP-U1) — имя файла по требованию владельца
+// FLOW: PdfExportService — имя файла по требованию
 // «работодатель_дата-время», чистка мусора в имени, генерация PDF (QuestPDF,
 // Community-лицензия идемпотентно).
 // LIFECYCLE: каждый тест — своя temp-папка; сгенерированные файлы удаляются.
@@ -50,7 +50,7 @@ public class PdfExportServiceTests : IDisposable
             new DateTimeOffset(2026, 10, 22, 14, 15, 30, TimeSpan.Zero), outDir);
 
         Assert.True(File.Exists(path));
-        // Имя по требованию владельца: работодатель + дата-время создания.
+        // Имя по требованию работодатель + дата-время создания.
         Assert.EndsWith("ООО Ромашка_20261022_141530.pdf", path);
 
         // Валидный PDF: магический заголовок %PDF- и разумный размер.

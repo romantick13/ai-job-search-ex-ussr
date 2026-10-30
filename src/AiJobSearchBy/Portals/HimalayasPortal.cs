@@ -4,8 +4,8 @@ using AiJobSearchBy.Services;
 namespace AiJobSearchBy.Portals;
 
 // FLOW: адаптер Himalayas на RSS-ленте (Access=Feed, Auth=None, карточка
-// BuiltInPortals.Core). Лента: https://himalayas.app/jobs/rss — подтверждена
-// живым зондом 2026-10-22 (20 свежих вакансий, title в CDATA).
+// BuiltInPortals.Core). Лента: https:// himalayas.app/jobs/rss — подтверждена
+// живым зондом (20 свежих вакансий, title в CDATA).
 // Компания/регион в ленте не переносятся — поля честно null, не выдумываем.
 // THREAD: состояние нет — потокобезопасен.
 public sealed class HimalayasPortal : FeedPortalBase
@@ -17,16 +17,7 @@ public sealed class HimalayasPortal : FeedPortalBase
     {
     }
 
-    private static PortalDescriptor BuildDescriptor() => new()
-    {
-        Id = "himalayas",
-        DisplayName = "Himalayas",
-        SourceClass = PortalSourceClass.Commercial,
-        Access = PortalAccessKind.Feed,
-        Auth = PortalAuthKind.None,
-        DefaultPriority = 6,
-        ApplySupported = true,
-    };
+    private static PortalDescriptor BuildDescriptor() => BuiltInPortals.CoreCard("himalayas");
 
     protected override string BuildFeedUrl(string query) => FeedUrl;
 

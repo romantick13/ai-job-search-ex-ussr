@@ -3,10 +3,9 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// Хотфикс 2026-10-22 (урок живого прогона владельца): Build() без bootLog
+// Хотфикс (урок живого прогона): Build без bootLog
 // создавал LogService с реальным %APPDATA%\ai-job-search-by\logs — строки
-// [config] от dotnet test падали в ЖИВОЙ протокол владельца (видно в его
-// логе 2026-10-21 20:20/20:39). TestConfigEnv изолирует local.json, эта
+// [config] от dotnet test падали в ЖИВОЙ протокол. TestConfigEnv изолирует local.json, эта
 // обвязка — протокол: каждый контейнерный тест обязан передавать явный
 // bootLog с temp-каталогом. Пара к TestConfigEnv, лог-напарник.
 internal static class TestBootLogs
@@ -16,7 +15,7 @@ internal static class TestBootLogs
                echoToConsole: false);
 }
 
-// FLOW: каркасный гейт WP-0 — контейнер собирается, регистрации на месте.
+// FLOW: каркасный гейт — контейнер собирается, регистрации на месте.
 // Окна не инстанцируем (нужен Avalonia-рантайм), проверяем дескрипторы.
 public class CompositionRootTests
 {
@@ -43,19 +42,20 @@ public class CompositionRootTests
     }
 
     [Fact]
-    public void Build_RegistersPortalStack_Wpp0()
+    public void Build_RegistersPortalStack()
     {
-        // WP-P0: реестр жив, keys-check на месте, ключи читаются через ILocalSecrets.
-        // WP-U1: реестр 8 порталов, дефолт-цепь 6 Core (см. Wpp1-гейт ниже).
+        // реестр жив, keys-check на месте, ключи читаются через ILocalSecrets.
+        // r21 (решение владельца): все чекбоксы по умолчанию выключены —
+        // дефолт-цепь ПУСТА (юзер собирает её галочками).
         using var services = CompositionRoot.Build(TestBootLogs.Fresh());
 
         var registry = services.GetRequiredService<Portals.PortalRegistry>();
-        Assert.Equal(6, registry.ResolveChain().Count);
+        Assert.Empty(registry.ResolveChain());
 
         var keysCheck = services.GetRequiredService<Services.IKeysCheckService>();
         Assert.IsAssignableFrom<Services.KeysCheckService>(keysCheck);
 
-        // WP-CONFIG (RFC-004): шов ILocalSecrets встал на реализацию —
+        // Шов ILocalSecrets встал на реализацию —
         // ConfigService (local.json в %APPDATA%). NullLocalSecrets остался
         // для фикстур (Fakes.cs).
         Assert.IsAssignableFrom<Services.ConfigService>(
@@ -63,30 +63,36 @@ public class CompositionRootTests
     }
 }
 
-// WP-P1 (PLAN §7): РБ-адаптеры в реестре, но вне цепи дефолта; HttpClient —
-// общий синглтон с донорским таймаутом 60 с (Atlas GitHubHarvester, Task 51).
-// WP-U1: + шесть Core-адаптеров коробки v1 — реестр 8 порталов, дефолт-цепь 6.
-public class CompositionRootWpp1Tests
+// Гейты реестра порталов: РБ-адаптеры в реестре; HttpClient —
+// общий синглтон с таймаутом 60 с.
+// Шесть Core-адаптеров + четыре зеркала hh (Deferred) —
+// реестр повторяет каталог BuiltInPortals.
+public class CompositionRootPortalRegistryTests
 {
     [Fact]
-    public void Build_RegistryHasEightPortals_CoreSixInDefaultChain()
+    public void Build_RegistryMirrorsCatalog_HhMirrorsInDefaultChain()
     {
         using var services = CompositionRoot.Build(TestBootLogs.Fresh());
 
         var registry = services.GetRequiredService<Portals.PortalRegistry>();
 
-        Assert.Equal(8, registry.Portals.Count);
-        // РБ-порталы — Priority 5, вне цепи дефолта (карточки §2.11).
-        Assert.Equal(new[] { "hh-by", "rabota-by" },
-            registry.Portals.Take(2).Select(p => p.Descriptor.Id));
-        // Дефолт-цепь: шесть Core, порядок = приоритет, при равенстве — Id ordinal.
+        // 6 Core + 4 зеркала hh; стуба rabota-by больше нет. praca.by вырезан
+        // в r21 (подключался решением владельца — решение отменено в тот же
+        // день: сайт низкого качества для IT-поиска).
+        Assert.Equal(Portals.BuiltInPortals.Core.Count + Portals.BuiltInPortals.Deferred.Count,
+                     registry.Portals.Count);
+        // r21 (решение владельца): дефолт-цепь ПУСТА — все чекбоксы выключены,
+        // юзер собирает цепочку галочками (выбор запоминается в базе).
+        Assert.Empty(registry.ResolveChain());
+        // Порядок списка чекбоксов: hh-зеркала (5) → Core (6-8).
         Assert.Equal(
-            new[] { "himalayas", "nodesk", "jobicy", "wwr", "remoteok", "remotive" },
-            registry.ResolveChain().Select(p => p.Descriptor.Id));
+            new[] { "hh-by", "hh-kz", "hh-ru", "hh-uz",
+                    "himalayas", "nodesk", "jobicy", "wwr", "remoteok", "remotive" },
+            registry.Portals.Select(p => p.Descriptor.Id));
     }
 
     [Fact]
-    public void Build_HttpClientIsSingleton_WithDonorTimeout()
+    public void Build_HttpClientIsSingleton_WithSharedTimeout()
     {
         using var services = CompositionRoot.Build(TestBootLogs.Fresh());
 
@@ -98,7 +104,7 @@ public class CompositionRootWpp1Tests
     }
 }
 
-// Контракт «никаких тихих игноров» (LOG-CONTRACT.md): протокол — первый сервис
+// Контракт «никаких тихих игноров»: протокол — первый сервис
 // графа; boot-экземпляр из Program.Main доезжает до DI без пересоздания.
 public class CompositionRootLogContractTests
 {
@@ -106,7 +112,7 @@ public class CompositionRootLogContractTests
     public void Build_RegistersLogService_AsSingleton()
     {
         // Явный bootLog: гейт изоляции — граф не создаёт LogService с живым
-        // %APPDATA% (урок [config]-строк от тестов в протоколе владельца).
+        // %APPDATA% (урок: [config]-строки от тестов в живом протоколе).
         using var services = CompositionRoot.Build(TestBootLogs.Fresh());
 
         var first = services.GetRequiredService<Services.ILogService>();
@@ -131,19 +137,20 @@ public class CompositionRootLogContractTests
     [Fact]
     public void Build_AdaptersReceiveLogService_PortalRegistryResolvable()
     {
-        // НИ-4: адаптеры обязаны получить протокол — иначе сборка графа падает
+        // адаптеры обязаны получить протокол — иначе сборка графа падает
         // (ctor PortalBase требует ILogService) — это и есть CI-гейт контракта.
         using var services = CompositionRoot.Build(TestBootLogs.Fresh());
 
         var registry = services.GetRequiredService<Portals.PortalRegistry>();
 
-        Assert.Equal(8, registry.Portals.Count);
+        Assert.Equal(Portals.BuiltInPortals.Core.Count + Portals.BuiltInPortals.Deferred.Count,
+                     registry.Portals.Count);
     }
 
-    // WP-U1 (решение владельца 2026-10-22): стек откликов в графе — база,
-    // векторизация (WP-U2: локальный эмбеддер), PDF-экспорт, индексатор,
+    // Стек откликов в графе — база,
+    // PDF-экспорт, индексатор (r21: векторизация вырезана),
     // адаптация, модель настроек.
-    public class CompositionRootWpu1Tests
+    public class CompositionRootWorkspaceTests
     {
         [Fact]
         public void Build_RegistersApplicationStack()
@@ -154,11 +161,8 @@ public class CompositionRootLogContractTests
             Assert.IsAssignableFrom<Services.ApplicationStore>(store);
             Assert.Contains(Path.Combine("ai-job-search-by", "data"), store.DbPath);
 
-            // WP-U2: локальный эмбеддер — ключа не нужно, живость решает
-            // самопробник (до него — честный оптимизм Enabled=true).
-            var embeddings = services.GetRequiredService<Services.Ai.IEmbeddingService>();
-            Assert.IsAssignableFrom<Services.Ai.LocalEmbeddingService>(embeddings);
-            Assert.True(embeddings.Enabled);
+            // r21: векторизация вырезана — IEmbeddingService из графа исчез;
+            // индексатор PDF живёт без эмбеддера.
 
             Assert.IsAssignableFrom<Services.PdfExportService>(
                 services.GetRequiredService<Services.IPdfExporter>());

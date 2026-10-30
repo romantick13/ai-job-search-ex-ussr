@@ -17,7 +17,7 @@ prompts/commands/skills are **not** carried over (owner decision,
 2026-10-20). If content is ever ported in the future, each copied
 markdown asset must carry a fixed 3-line provenance header (original
 upstream path + MIT notice + copy date) with the file body verbatim to
-upstream (DECISIONS.md, RFC-007 §2.2).
+upstream (внутренний журнал решений, RFC-007 §2.2).
 
 ## 1. ai-job-search (upstream) — MIT License
 
@@ -26,7 +26,7 @@ upstream (DECISIONS.md, RFC-007 §2.2).
 - Used by this project: the portal adapter contract and the reference
   workflow (no verbatim files; the upstream markdown prompt assets are
   not carried over — owner decision, 2026-10-20).
-- Attribution: [README.md](README.md), section «Атрибуция».
+- Attribution: [README.md](README.md), раздел «Лицензии».
 
 ## 2. QuestPDF 2026.8.0 — QuestPDF Community License v3.0
 
@@ -79,10 +79,11 @@ is the authoritative source at build time.
 | Markdig | 1.3.2 | BSD-2-Clause |
 | DocumentFormat.OpenXml | 3.2.0 | MIT |
 | PdfPig | 0.1.16 | Apache-2.0 |
+| PDFsharp | 6.1.1 | MIT |
 | QuestPDF | 2026.8.0 | QuestPDF Community v3.0 (see §2) |
 
 PdfPig license verified against the primary source (GitHub,
-UglyToad/PdfPig → Apache-2.0) on 2026-10-22. Note (WP-U1, 2026-10-22):
+UglyToad/PdfPig → Apache-2.0) on 2026-10-22. Note (2026-10-22):
 the package id moved on NuGet from «UglyToad.PdfPig» to «PdfPig»; the
 pin «pinned at integration» closed at 0.1.16 (namespace UglyToad.PdfPig
 unchanged).
@@ -101,26 +102,13 @@ contains Microsoft and third-party components. The SDK
 
 - xunit 2.9.2 — Apache-2.0 (test-only; not part of the distribution zip).
 
-## 7. Embedding model — Qwen3-Embedding-0.6B — Apache-2.0
-
-- Model: [Qwen/Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B),
-  © 2025 Alibaba Cloud (Qwen team) — Apache License 2.0.
-- The weights are **not distributed** with this application: the model is
-  pulled and served by the user's own runtime (Ollama / LM Studio /
-  llama.cpp-server) over an OpenAI-compatible `/v1/embeddings` endpoint.
-  The application is an HTTP client only (WP-U2, owner decision 2026-10-22).
-- Default model id: `qwen3-embedding:0.6b`; recommended quantization
-  q8_0/f16 (official GGUF line) — embeddings degrade on aggressive quants.
-- Selection rationale (2026-10-22): Jina embeddings v2–v5 are CC BY-NC 4.0
-  / research-only (commercially unusable for the future enterprise core)
-  and carry an export-control risk for the maintainer's jurisdiction; the
-  Jina client was removed in WP-U2. `bge-reranker-v2-m3` (Apache-2.0)
-  remains the candidate for a future reranking layer; license check of the
-  candidate table was done against HuggingFace model cards on 2026-10-22.
-
 ## Maintenance rule
 
 A new NuGet package in the distribution = a new line in this file in the
 same commit. Licenses are verified against the primary source
 (NuGet / deps.dev / GitHub), never copied from another document.
 Last full check: 2026-10-19 (RFC-007 §2.4).
+
+2026-10-29 (r21): former §7 (embedding model Qwen3-Embedding-0.6B) removed —
+the embedding subsystem was cut from the application entirely (owner
+decision), the application no longer acts as an embeddings HTTP client.

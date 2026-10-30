@@ -1,7 +1,7 @@
 namespace AiJobSearchBy.Models;
 
 // FLOW: нормализованная вакансия — единственная валюта портального слоя.
-// IPortalService.SearchAsync/DetailAsync отдают её; ScrapeOrchestrator (WP-P1+)
+// IPortalService.SearchAsync/DetailAsync отдают её; ScrapeOrchestrator (+)
 // кладёт её в SQLite Vacancies после DedupeHasher (architecture.md §3.3/§4).
 // Поля 1:1 со схемой таблицы Vacancies (architecture.md §4).
 public sealed record JobPosting
@@ -25,10 +25,10 @@ public sealed record JobPosting
 
     public string? Location { get; init; }
 
-    // Зарплата как на портале, строкой; разбор (BYN/USD) — RankService (§3.4).
+    // Зарплата как на портале, строкой; разбор (BYN/USD) — в RankService.
     public string? SalaryText { get; init; }
 
-    // Описание в Markdown. Нормализация выполняется ПОСЛЕ дедупа (§10).
+    // Описание в Markdown. Нормализация выполняется ПОСЛЕ дедупа (architecture.md §10).
     public string? DescriptionMd { get; init; }
 
     // SourceClass/AccessKind — строковые колонки схемы; в модели — типы канона.
@@ -45,11 +45,24 @@ public sealed record JobPosting
 
     public DateTimeOffset FetchedAt { get; init; }
 
+    // «hh сам подбирает похожие»: true —
+    // вакансия взята из блока «Вам подойдут эти вакансии» на странице другой
+    // вакансии (hh сам назвал её смежной). Такие строки не режутся
+    // релевант-гейтом строки запроса (hh подобрал их сам), гео-фильтр — общий.
+    // Колонка Vacancies.IsSimilar (EnsureColumn-миграция, канон разрешает).
+    public bool IsSimilar { get; init; }
+
+    // r20: полный текст вакансии УЖЕ доставался со страницы вакансии и
+    // закэширован в DescriptionMd (кнопка «Адаптировать» второй раз в сеть
+    // за той же вакансией не ходит). Колонка Vacancies.DetailFetched
+    // (EnsureColumn-миграция).
+    public bool DetailFetched { get; init; }
+
     // Статусы Vacancy (architecture.md §5): new|shortlisted|applied|duplicate|archived.
     public VacancyStatus Status { get; init; } = VacancyStatus.New;
 }
 
-// STATE: значения канона §5; в БД хранится строкой (Vacancies.Status).
+// STATE: значения из architecture.md §5; в БД хранится строкой (Vacancies.Status).
 public enum VacancyStatus
 {
     New,

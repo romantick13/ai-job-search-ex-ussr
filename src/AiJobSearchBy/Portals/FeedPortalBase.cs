@@ -7,13 +7,13 @@ using AiJobSearchBy.Services;
 
 namespace AiJobSearchBy.Portals;
 
-// FLOW: RSS/Atom (RFC-003 §2.1): BuildFeedUrl → GET → ParseFeed → MapItem.
+// FLOW: RSS/Atom: BuildFeedUrl → GET → ParseFeed → MapItem.
 // Разбор — System.Xml.Linq с матчингом по LocalName: ленты вольно обращаются
 // с namespace (RSS без ns, Atom с «http://www.w3.org/2005/Atom»).
-// Markdig подключается на WP-E (RFC-001 §4) — описания остаются сырыми,
+// Markdig пока не подключён — описания остаются сырыми,
 // конвертация HTML→Markdown придёт вместе с ним.
-// Контракт «никаких тихих игноров» (LOG-CONTRACT.md): пропуски битых элементов
-// НЕ молчат — onSkip в протокол (НИ-2); каждый шаг — событие (НИ-4).
+// Контракт «никаких тихих игноров»: пропуски битых элементов
+// НЕ молчат — onSkip в протокол; каждый шаг — событие.
 // THREAD: состояние нет — потокобезопасен.
 public abstract class FeedPortalBase : PortalBase
 {
@@ -37,7 +37,7 @@ public abstract class FeedPortalBase : PortalBase
     protected abstract string BuildFeedUrl(string query);
 
     // Маппинг элемента ленты → вакансия; дедуп-хэш адаптер считает через
-    // DedupeHasher.ComputeComposite (§2.8 — ДО нормализации текста).
+    // DedupeHasher.ComputeComposite — ДО нормализации текста.
     protected abstract JobPosting MapItem(FeedItem item);
 
     public override async Task<IReadOnlyList<JobPosting>> SearchAsync(string query, CancellationToken ct = default)
@@ -47,9 +47,13 @@ public abstract class FeedPortalBase : PortalBase
 
         try
         {
-            var xml = await Http.GetStringAsync(url, ct).ConfigureAwait(false);
+            // общий GET с одним ретраем (403/429/503/сеть — пауза 4 с);
+            // человекочитаемая причина не-2xx теперь и у лент.
+            var xml = await GetPayloadAsync(url, $"лента «{query}»", ct).ConfigureAwait(false);
             var items = ParseFeed(xml, onSkip: reason =>
-                Log.LogWarn($"skip: {Descriptor.Id} лента — {reason}"));
+                Log.LogWarn($"skip: {Descriptor.Id} лента — {reason}"),
+                onNote: note =>
+                    Log.LogWarn($"портал {Descriptor.Id}: {note}"));
             var result = new List<JobPosting>(items.Count);
             foreach (var item in items)
             {
@@ -62,14 +66,14 @@ public abstract class FeedPortalBase : PortalBase
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // НИ-1/НИ-2: отмена пользователем — осознанный пропуск, не ошибка.
+            // /отмена пользователем — осознанный пропуск, не ошибка.
             Log.LogWarn($"skip: портал {Descriptor.Id} — лента «{query}» отменена пользователем (ct)");
             throw;
         }
         catch (Exception ex)
         {
-            // НИ-1: битая XML (ParseFailedException), сеть, таймаут — причина
-            // в протоколе, решение за оркестратором (§7).
+            // битая XML (ParseFailedException), сеть, таймаут — причина
+            // в протоколе, решение за оркестратором.
             Log.LogError($"портал {Descriptor.Id}: лента «{query}» упала — "
                 + $"{ex.GetType().Name}: {ex.Message}; решение: наверх (оркестратору)");
             throw;
@@ -78,26 +82,49 @@ public abstract class FeedPortalBase : PortalBase
 
     // RSS/Atom не несёт отдельной карточки вакансии — деталь берётся из item'а
     // ленты. Адаптеры-исключения переопределяют явно.
+    public override bool SupportsDetail => false;
+
     public override Task<JobPosting> DetailAsync(string idOrUrl, CancellationToken ct = default)
         => throw new NotSupportedException(
             $"{Descriptor.Id}: RSS/Atom не несёт отдельной карточки вакансии; используйте SearchAsync");
 
     // LIFECYCLE: чистая функция — golden-фикстуры лент тестируют её без сети.
     // Незнакомые/пустые элементы (без link/href) пропускаются НЕ молча: каждый
-    // пропуск уходит в onSkip (LOG-CONTRACT.md НИ-2) — лента частично битая не
-    // роняет весь прогон (§7: отказ ≠ крах), но каждый пропуск — событие.
-    public static IReadOnlyList<FeedItem> ParseFeed(string xml, Action<string>? onSkip = null)
+    // пропуск уходит в onSkip — лента частично битая не
+    // роняет весь прогон (отказ ≠ крах), но каждый пропуск — событие.
+    // Живой кейс (nodesk падал
+    // ParseFailedException при валидном на вид payload): лента nodesk несёт
+    // HTML-сущности (&nbsp;, &ldquo; …) без DTD — строгий XDocument.Parse падает
+    // «undefined entity», хотя лента содержательно валидна. Рецепт: одна
+    // tolerant-пречистка — известные HTML-сущности → символы, оставшиеся голые
+    // & → &amp;, управляющие символы → выброшены; после чистки парсим заново.
+    // Чистка НЕ молчит: событие уходит в onNote (SearchAsync пишет WARN).
+    public static IReadOnlyList<FeedItem> ParseFeed(string xml, Action<string>? onSkip = null,
+        Action<string>? onNote = null)
     {
         XDocument document;
         try
         {
             document = XDocument.Parse(xml);
         }
-        catch (XmlException e)
+        catch (XmlException original)
         {
-            // Трансформация исключения с сохранением причины — re-throw ниже
-            // логируется вызывающим (SearchAsync, НИ-1).
-            throw new ParseFailedException("лента не разбирается как XML", e);
+            var cleaned = SanitizeXml(xml);
+            try
+            {
+                document = XDocument.Parse(cleaned);
+                onNote?.Invoke("лента поправлена tolerant-пречисткой (HTML-сущности/голые «&») "
+                    + $"— источник отдаёт не чистый XML; причина первой неудачи: {original.Message}");
+            }
+            catch (XmlException e)
+            {
+                // Трансформация исключения с сохранением причины — re-throw ниже
+                // логируется вызывающим (SearchAsync, ). в сообщение
+                // идёт начало payload — под HTML-щитом (nodesk) в
+                // протоколе сразу видно, ЧТО пришло вместо XML.
+                throw new ParseFailedException(
+                    $"лента не разбирается как XML даже после пречистки (начало payload: {Preview(cleaned)})", e);
+            }
         }
 
         var items = document.Descendants()
@@ -112,7 +139,7 @@ public abstract class FeedPortalBase : PortalBase
         {
             if (string.IsNullOrWhiteSpace(item.Link))
             {
-                // НИ-2: пропуск — осознанный и видимый в протоколе.
+                // пропуск — осознанный и видимый в протоколе.
                 onSkip?.Invoke($"элемент без link пропущен (title: {item.Title ?? "—"}, "
                     + $"id: {item.ExternalId ?? "—"})");
                 continue;
@@ -123,6 +150,87 @@ public abstract class FeedPortalBase : PortalBase
 
         return result;
     }
+
+    // первые 120 знаков payload в одну строку — диагноз «лента не
+    // разбирается» без повторного прогона (<!DOCTYPE html>… — щит, не лента).
+    private static string Preview(string xml)
+    {
+        var flat = Regex.Replace(xml ?? string.Empty, "\\s+", " ").Trim();
+        return flat.Length <= 120 ? flat : flat[..120] + "…";
+    }
+
+    // tolerant-пречистка payload. Шаг 1 — управляющие символы вне
+    // \t\r\n (XML их запрещает, ленты вставляют из-за кривых описаний);
+    // шаг 2 — сущности: числовые (&#123;/&#x1F600;) и пять XML-шных (&amp;…)
+    // легальны и не трогаются; известные HTML-сущности (&nbsp;/&ldquo;/…)
+    // заменяются на символы; любой остальной & (голый амперсанд, «R&D»)
+    // экранируется в &amp; — иначе XDocument.Parse отвечает «undefined entity».
+    public static string SanitizeXml(string xml)
+    {
+        if (string.IsNullOrEmpty(xml))
+        {
+            return xml;
+        }
+
+        var sb = new System.Text.StringBuilder(xml.Length);
+        foreach (var ch in xml)
+        {
+            if (ch >= 0x20 || ch == '\t' || ch == '\n' || ch == '\r')
+            {
+                sb.Append(ch);
+            }
+        }
+
+        return BareAmpRx.Replace(
+            EntityRx.Replace(sb.ToString(), match =>
+        {
+            var name = match.Groups[1].Value;
+            if (name.StartsWith('#') || XmlLegalEntities.Contains(name))
+            {
+                return match.Value; // числовые и пять XML-сущностей легальны
+            }
+
+            return HtmlEntities.TryGetValue(name, out var replacement)
+                ? replacement
+                : "&amp;" + name + ";"; // голый амперсанд — экранируем, имя сохраняем
+        }), "&amp;");
+    }
+
+    // &(#...; | #x...; | буквы+цифры;) — кандидат на сущность.
+    private static readonly Regex EntityRx = new(
+        "&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);", RegexOptions.Compiled);
+
+    // Второй проход: амперсанды БЕЗ точки с запятой («R&D», «AT&T», «& <слово»):
+    // первый проход их не трогает (нет сущности) — а XDocument.Parse падает и на
+    // них. Легальные сущности (после первого прохода они в правильном виде)
+    // защищены lookahead'ом.
+    private static readonly Regex BareAmpRx = new(
+        "&(?![a-zA-Z][a-zA-Z0-9]*;|#\\d+;|#x[0-9a-fA-F]+;)", RegexOptions.Compiled);
+
+    // Легальные для XML без DTD: числовые ловит префикс «#», тут — именные.
+    private static readonly HashSet<string> XmlLegalEntities = new()
+    { "amp", "lt", "gt", "quot", "apos" };
+
+    // Частые HTML-сущности RSS-описаний (без DTD парсеру они незнакомы).
+    private static readonly IReadOnlyDictionary<string, string> HtmlEntities =
+        new Dictionary<string, string>
+        {
+            ["nbsp"] = "\u00A0", ["iexcl"] = "¡", ["cent"] = "¢", ["pound"] = "£",
+            ["curren"] = "¤", ["yen"] = "¥", ["sect"] = "§", ["uml"] = "¨",
+            ["copy"] = "©", ["reg"] = "®", ["deg"] = "°", ["plusmn"] = "±",
+            ["acute"] = "´", ["micro"] = "µ", ["para"] = "¶", ["middot"] = "·",
+            ["frac14"] = "¼", ["frac12"] = "½", ["frac34"] = "¾",
+            ["iquest"] = "¿", ["times"] = "×", ["divide"] = "÷",
+            ["oelig"] = "œ", ["scaron"] = "š", ["yuml"] = "ÿ",
+            ["fnof"] = "ƒ", ["circ"] = "ˆ", ["tilde"] = "˜",
+            ["ndash"] = "–", ["mdash"] = "—", ["lsquo"] = "‘", ["rsquo"] = "’",
+            ["sbquo"] = "‚", ["ldquo"] = "“", ["rdquo"] = "”", ["bdquo"] = "„",
+            ["dagger"] = "†", ["Dagger"] = "‡", ["bull"] = "•", ["hellip"] = "…",
+            ["permil"] = "‰", ["prime"] = "′", ["Prime"] = "″",
+            ["lsaquo"] = "‹", ["rsaquo"] = "›", ["oline"] = "‾", ["frasl"] = "⁄",
+            ["euro"] = "€", ["trade"] = "™", ["quot"] = "\"",
+            ["laquo"] = "«", ["raquo"] = "»", ["shy"] = "\u00AD",
+        };
 
     private static FeedItem ParseRssItem(XElement item) => new(
         Title: Text(item, "title"),
@@ -160,7 +268,7 @@ public abstract class FeedPortalBase : PortalBase
     private static DateTimeOffset? Date(XElement parent, string localName)
         => Text(parent, localName) is { } raw ? ParseDate(raw) : null;
 
-    // Ленты несут и ISO-8601 (Atom), и RFC-822 (RSS). Парсер .NET 10 не берёт
+    // Ленты несут и ISO-8601 (Atom), и (RSS). Парсер .NET 10 не берёт
     // RFC1123 с днём недели («Tue, 21 Oct 2026 ... GMT» — проверено эмпирически),
     // поэтому fallback: отрезаем «ddd, » и добираем числовые зоны ±hhmm → ±hh:mm.
     private static DateTimeOffset? ParseDate(string raw)

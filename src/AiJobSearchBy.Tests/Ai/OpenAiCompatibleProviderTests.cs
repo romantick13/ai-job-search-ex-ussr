@@ -11,17 +11,17 @@ using Xunit;
 namespace AiJobSearchBy.Tests.Ai;
 
 // ============================================================================
-// [НАШЕ] Тесты OpenAiCompatibleProvider (ModelScope / SiliconFlow / локальные):
+// Тесты OpenAiCompatibleProvider (ModelScope / SiliconFlow / локальные):
 // разбор ответа, отсутствие ключа = Busy без HTTP (фейл-фаст), локальный
 // профиль без ключа работает, 429 → Busy (фолбэк цепи), 500 кричит, сервер
 // не поднят = Busy, исчерпание капы запросов — фейл-фаст, токен-регистр,
 // сериализация одновременных запросов (ModelScope: 1 одновременный),
 // enable_thinking=false уходит только у профилей с disableThinking (504-урок
-// ModelScope 2026-10-21), по умолчанию поле отсутствует вовсе.
+// ModelScope), по умолчанию поле отсутствует вовсе.
 // ============================================================================
 
 // FLOW: тесты -> OpenAiCompatibleProvider поверх фейкового HttpMessageHandler (без сети)
-//        -> разбор/лимиты/регистры/сериализация
+// -> разбор/лимиты/регистры/сериализация
 // LIFECYCLE: каждый тест — свой tmp-каталог протокола и свой StubHandler
 // STATE: StubHandler фиксирует вызовы/заголовки/параллельность; эхо консоли выключено
 // THREAD: однопоточные сценарии; один конкурентный тест — сериализация ModelScope
@@ -106,10 +106,11 @@ public sealed class OpenAiCompatibleProviderTests : IDisposable
     {
         var h = new StubHandler(_ => Ok(ChatBody));
         var log = Log();
-        var p = new OpenAiCompatibleProvider(log, "ollama-local",
-            OpenAiCompatibleProvider.OllamaLocalBaseUrl,
-            model: "qwen3:4b", apiKey: null, requireApiKey: false,
-            httpClient: new HttpClient(h) { BaseAddress = new Uri(OpenAiCompatibleProvider.OllamaLocalBaseUrl) });
+        // Локальный профиль цепи — lm-studio (ollama-local убран из дефолта).
+        var p = new OpenAiCompatibleProvider(log, "lm-studio",
+            OpenAiCompatibleProvider.LmStudioBaseUrl,
+            model: "local-model", apiKey: null, requireApiKey: false,
+            httpClient: new HttpClient(h) { BaseAddress = new Uri(OpenAiCompatibleProvider.LmStudioBaseUrl) });
 
         var r = await p.CompleteAsync(new AiChatRequest("s", "u", 256));
 
@@ -157,14 +158,41 @@ public sealed class OpenAiCompatibleProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task Unauthorized_Explains_Token_Rejected_By_Provider()
+    {
+        // 401 = ключ ЕСТЬ (иначе Busy до запроса),
+        // его отклонила сторона провайдера — в протоколе честная причина и
+        // путь решения, исключение наружу — цепь теперь перебирает остальных.
+        var h = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent(
+                """{"error":{"message":"Authentication failed, please make sure that a valid ModelScope token is supplied."}}""")
+        });
+        var log = Log();
+        var p = ModelScopeLike(log, h);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => p.CompleteAsync(new AiChatRequest("s", "u", 256)));
+
+        Assert.Contains("401", ex.Message);
+        Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("\u274C")
+            && x.Contains("HTTP 401")
+            && x.Contains("ключ отклонён на стороне провайдера")
+            && x.Contains("выпустить новый в кабинете провайдера")
+            && x.Contains("перебираются сами"));
+    }
+
+    [Fact]
     public async Task Local_Server_Down_Is_Busy_Not_Crash()
     {
         var h = new StubHandler(_ => throw new HttpRequestException("connection refused"));
         var log = Log();
-        var p = new OpenAiCompatibleProvider(log, "ollama-local",
-            OpenAiCompatibleProvider.OllamaLocalBaseUrl,
-            model: "qwen3:4b", apiKey: null, requireApiKey: false,
-            httpClient: new HttpClient(h) { BaseAddress = new Uri(OpenAiCompatibleProvider.OllamaLocalBaseUrl) });
+        // ollama-local убран из дефолтной цепи; локальная ступень
+        // теперь lm-studio — поведение «сервер не отвечает = Busy» не менялось.
+        var p = new OpenAiCompatibleProvider(log, "lm-studio",
+            OpenAiCompatibleProvider.LmStudioBaseUrl,
+            model: "local-model", apiKey: null, requireApiKey: false,
+            httpClient: new HttpClient(h) { BaseAddress = new Uri(OpenAiCompatibleProvider.LmStudioBaseUrl) });
 
         var ex = await Assert.ThrowsAsync<AiProviderBusyException>(
             () => p.CompleteAsync(new AiChatRequest("s", "u", 256)));
@@ -199,7 +227,7 @@ public sealed class OpenAiCompatibleProviderTests : IDisposable
             () => p.CompleteAsync(new AiChatRequest("s", "u", 256)));
         Assert.Contains("запросов исчерпана", ex.Message);
         Assert.Equal(callsBefore, h.TotalCalls); // HTTP не вызывался — фейл-фаст
-        // Подсказка про per-model капу ModelScope ушла в WARN-протокол (НИ-2).
+        // Подсказка про per-model капу ModelScope ушла в WARN-протокол .
         Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("\u26A0") && x.Contains("200 на модель"));
     }
 
@@ -252,7 +280,7 @@ public sealed class OpenAiCompatibleProviderTests : IDisposable
         Assert.Equal(1, h.MaxParallel); // «single-request concurrency» соблюдён
     }
 
-    // 504-урок ModelScope 2026-10-21: гибридным Qwen шлём enable_thinking=false,
+    // 504-урок ModelScope: гибридным Qwen шлём enable_thinking=false,
     // иначе модель «думает» дольше таймаута шлюза.
     [Fact]
     public async Task DisableThinking_Sends_Enable_Thinking_False()
@@ -279,7 +307,62 @@ public sealed class OpenAiCompatibleProviderTests : IDisposable
         Assert.DoesNotContain("enable_thinking", h.Bodies[0]);
     }
 
-    /// <summary>Фейковый обработчик: без сети, фиксирует запросы и тела.</summary>
+    // Пустой content при ненулевом usage — сбой ступени, не результат:
+    // reasoning-модель унесла ответ в reasoning_content. Provider обязан
+    // кинуть BusyException (цепь переберёт следующих), а не отдать пустоту
+    // наверх — иначе в историю ложится «адаптировано, а резюме пустое».
+    [Fact]
+    public async Task Empty_Content_With_Reasoning_Is_Busy()
+    {
+        const string body = """
+            {"choices":[{"index":0,"message":{"role":"assistant","content":"","reasoning_content":"сначала подумаем: резюме надо…"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2300,"completion_tokens":379,"total_tokens":2679}}
+            """;
+        var h = new StubHandler(_ => Ok(body));
+        var log = Log();
+        var p = ModelScopeLike(log, h, requestLedger: null);
+
+        var ex = await Assert.ThrowsAsync<AiProviderBusyException>(
+            () => p.CompleteAsync(new AiChatRequest("s", "u", 256)));
+
+        Assert.Contains("reasoning_content", ex.Message);
+        Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("пустой текст ответа") && x.Contains("reasoning_content"));
+    }
+
+    [Fact]
+    public async Task Empty_Content_Without_Reasoning_Is_Busy()
+    {
+        const string body = """
+            {"choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"length"}],"usage":{"prompt_tokens":100,"completion_tokens":0,"total_tokens":100}}
+            """;
+        var h = new StubHandler(_ => Ok(body));
+        var log = Log();
+        var p = ModelScopeLike(log, h, requestLedger: null);
+
+        var ex = await Assert.ThrowsAsync<AiProviderBusyException>(
+            () => p.CompleteAsync(new AiChatRequest("s", "u", 256)));
+
+        Assert.Contains("пустой content", ex.Message);
+        Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("ответ шлюза без текста"));
+    }
+
+    // Часть шлюзов возвращают content массивом частей [{type:"text",…}] —
+    // читаем оба формата, текст склеивается.
+    [Fact]
+    public async Task Content_As_Part_Array_Is_Joined()
+    {
+        const string body = """
+            {"choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"text","text":"часть 1 "},{"type":"text","text":"часть 2"}]},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+            """;
+        var h = new StubHandler(_ => Ok(body));
+        var log = Log();
+        var p = ModelScopeLike(log, h, requestLedger: null);
+
+        var r = await p.CompleteAsync(new AiChatRequest("s", "u", 256));
+
+        Assert.Equal("часть 1 часть 2", r.Content);
+    }
+
+    // / <summary>Фейковый обработчик: без сети, фиксирует запросы и тела.</summary>
     private sealed class StubHandler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;
@@ -305,7 +388,7 @@ public sealed class OpenAiCompatibleProviderTests : IDisposable
         }
     }
 
-    /// <summary>Обработчик с задержкой: меряет фактическую параллельность вызовов.</summary>
+    // / <summary>Обработчик с задержкой: меряет фактическую параллельность вызовов.</summary>
     private sealed class SerialStubHandler : HttpMessageHandler
     {
         private int _current;

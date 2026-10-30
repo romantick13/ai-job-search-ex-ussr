@@ -3,9 +3,9 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: пин коробки v1 (RFC-003 §2.3): 6 порталов без ключей; генератор README
-// (tools/gen_readme_counters.py) держит «порталов в цепочке по умолчанию: 6» —
-// каталог и реестр не должны разъезжаться.
+// FLOW: пин каталога порталов: 6 международных источников без ключей
+// (Core) + 4 зеркала группы hh (Беларусь/Россия/Казахстан/Узбекистан).
+// Каталог и реестр не должны разъезжаться.
 public class BuiltInPortalsTests
 {
     [Fact]
@@ -28,14 +28,14 @@ public class BuiltInPortalsTests
     [Fact]
     public void Core_AllAuthNone_StartWithoutKeys()
     {
-        // §2.9/§3.3: старт без ключей — auth=none работают сразу.
+        // Старт без ключей — auth=none работают сразу.
         Assert.All(BuiltInPortals.Core, p => Assert.Equal(PortalAuthKind.None, p.Auth));
     }
 
     [Fact]
     public void Core_PrioritiesMatchRegistryTable()
     {
-        // Таблица RFC-003 §2.3: remoteok 8, remotive 8, jobicy 7, wwr 7,
+        // Приоритеты: remoteok 8, remotive 8, jobicy 7, wwr 7,
         // himalayas 6, nodesk 6.
         var byId = BuiltInPortals.Core.ToDictionary(p => p.Id, p => p.DefaultPriority);
 
@@ -50,7 +50,7 @@ public class BuiltInPortalsTests
     [Fact]
     public void Core_AccessMatchesBaseClassLayout()
     {
-        // Раскладка §2.1/§2.3: remoteok/remotive/jobicy — ApiPortalBase
+        // Раскладка: remoteok/remotive/jobicy — ApiPortalBase
         // (official_api); wwr/himalayas/nodesk — FeedPortalBase (feed).
         var byId = BuiltInPortals.Core.ToDictionary(p => p.Id, p => p.Access);
 
@@ -65,8 +65,8 @@ public class BuiltInPortalsTests
     [Fact]
     public void Core_SearchWithoutApplyWarnings()
     {
-        // Поиск ≠ подача (§2.7): у коробки предупреждений нет — «мёртвые»
-        // площадки появляются вместе с их WP (hh-исторический пример).
+        // Поиск ≠ подача: у международных источников предупреждений нет —
+        // ApplyWarning появляется у площадок с ограничениями подачи.
         Assert.All(BuiltInPortals.Core, p =>
         {
             Assert.True(p.ApplySupported);
@@ -75,37 +75,83 @@ public class BuiltInPortalsTests
     }
 }
 
-// WP-P1 (PLAN §7): отложенные карточки §2.11 — манифесты в реестре, поиск
-// выключен по умолчанию («включение отдельным решением»).
-public class BuiltInPortalsDeferredTests
+// Зеркала группы hh: ровно четыре страны бывшего СССР, где у группы есть
+// собственный сайт-зеркало (проверено живыми запросами 2026-10-29:
+// hh.kg/hh.tj не отвечают, hh.md/hh.ge/hh.am — чужие сайты). Коды
+// регионов — справочник api.hh.ru/areas/countries.
+public class BuiltInPortalsHhMirrorsTests
 {
     [Fact]
-    public void Deferred_IsTwoRbPortals()
+    public void Mirrors_AreFourExUssrCountries()
     {
+        var cards = BuiltInPortals.Deferred;
+
+        Assert.Equal(4, cards.Count);
         Assert.Equal(
-            new[] { "hh-by", "rabota-by" },
-            BuiltInPortals.Deferred.Select(p => p.Id));
+            new[] { "hh-by", "hh-kz", "hh-ru", "hh-uz" },
+            cards.Select(c => c.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
-    public void Deferred_AllDisabledByDefault()
+    public void Mirrors_HostsAndAreas_MatchOfficialCountryList()
     {
-        Assert.All(BuiltInPortals.Deferred, p =>
+        // (хост, код региона) каждого зеркала; area — код страны из
+        // api.hh.ru/areas/countries: Беларусь 16, Казахстан 40,
+        // Россия 113, Узбекистан 97.
+        var byId = BuiltInPortals.HhMirrors.ToDictionary(m => m.Card.Id);
+
+        Assert.Equal(("https://rabota.by", "16"), (byId["hh-by"].Host, byId["hh-by"].AreaId));
+        Assert.Equal(("https://hh.kz", "40"), (byId["hh-kz"].Host, byId["hh-kz"].AreaId));
+        Assert.Equal(("https://hh.ru", "113"), (byId["hh-ru"].Host, byId["hh-ru"].AreaId));
+        Assert.Equal(("https://hh.uz", "97"), (byId["hh-uz"].Host, byId["hh-uz"].AreaId));
+    }
+
+    [Fact]
+    public void Mirrors_CardsDefaults()
+    {
+        // Каждое зеркало: браузерная эмуляция, выключено по умолчанию (r21 —
+        // все чекбоксы выключены, юзер собирает цепочку сам),
+        // одинаковый приоритет 5, честный ApplyWarning (поиск ≠ подача).
+        Assert.All(BuiltInPortals.Deferred, card =>
         {
-            Assert.False(p.DefaultEnabled, $"{p.Id}: карточка §2.11 требует выключенного дефолта");
-            Assert.NotNull(p.ApplyWarning);
-            Assert.Equal(5, p.DefaultPriority);
-            Assert.Equal(PortalAccessKind.OfficialApi, p.Access);
+            Assert.False(card.DefaultEnabled, $"{card.Id}: выключено по умолчанию (r21)");
+            Assert.Equal(PortalAccessKind.Scrape, card.Access);
+            Assert.Equal(PortalAuthKind.None, card.Auth);
+            Assert.Equal(5, card.DefaultPriority);
+            Assert.NotNull(card.ApplyWarning);
+            Assert.Contains("регистрация не нужна", card.ApplyWarning);
+            Assert.Contains("отклик руками на сайте", card.ApplyWarning);
         });
     }
 
     [Fact]
-    public void Deferred_DoesNotOverlapCore_UnionIsEight()
+    public void Mirrors_DisplayNames_ShowCountry()
+    {
+        Assert.Contains("Беларусь", BuiltInPortals.HhBy.Card.DisplayName);
+        Assert.Contains("Россия", BuiltInPortals.HhRu.Card.DisplayName);
+        Assert.Contains("Казахстан", BuiltInPortals.HhKz.Card.DisplayName);
+        Assert.Contains("Узбекистан", BuiltInPortals.HhUz.Card.DisplayName);
+    }
+
+    [Fact]
+    public void Mirrors_CardsMatchCatalog_SameInstance()
+    {
+        // Каталог и адаптер обязаны держать ОДНИ экземпляры карточек
+        // (две копии дескриптора разъезжаются при правках).
+        Assert.Equal(
+            BuiltInPortals.HhMirrors.Select(m => m.Card).ToArray(),
+            BuiltInPortals.Deferred.ToArray());
+        Assert.All(BuiltInPortals.HhMirrors, m =>
+            Assert.Same(m.Card, BuiltInPortals.Deferred.Single(c => c.Id == m.Card.Id)));
+    }
+
+    [Fact]
+    public void Mirrors_DoesNotOverlapCore_UnionIsTen()
     {
         var coreIds = BuiltInPortals.Core.Select(p => p.Id);
         var deferredIds = BuiltInPortals.Deferred.Select(p => p.Id);
 
         Assert.Empty(coreIds.Intersect(deferredIds));
-        Assert.Equal(8, coreIds.Count() + deferredIds.Count());
+        Assert.Equal(10, coreIds.Count() + deferredIds.Count());
     }
 }

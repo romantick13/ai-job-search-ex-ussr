@@ -8,17 +8,86 @@ internal static class Program
 {
     // STATE: единственный DI-контейнер приложения; поднимается до старта UI,
     // после старта не заменяется. Ссылка nullable: в дизайнере XAML контейнер
-    // ещё не поднят, окно создаётся через прямой new MainViewModel().
+    // ещё не поднят, окно создаётся через прямой new MainViewModel.
     internal static ServiceProvider? Services { get; private set; }
+
+    // === ОДИН ЭКЗЕМПЛЯР (r20, по образцу донора UniD) ===
+    // Windows — именованный Mutex «Global\» (канон Windows, видно во всех
+    // сессиях пользователей). НЕ-Windows — блокировочный файл app.lock с
+    // FileShare.None: в ряде песочниц/ядер именованные мьютексы рантайма
+    // НЕ шарятся между процессами (воспроизведено 2026-10-29: второй
+    // процесс получал createdNew=true, а открытие чужого падало
+    // IOException), а файловая блокировка честна всегда. Оба механизма
+    // самоосвобождаются при краше (ОС закрывает хэндл) — следующий запуск
+    // не заблокирован. Почему это обязательно: SQLite-база не рассчитана
+    // на двух писателей (SQLITE_BUSY), двойной обход сайтов валит щиты
+    // порталов, двойная автопроба каталогов — лишний трафик.
+    private const string WindowsMutexName = @"Global\AiJobSearchBy_SingleInstance";
+
+    public enum SingleInstanceGuardResult { Acquired, AlreadyRunning, Unavailable }
+
+    // Взять «замок единственности». handle живёт весь lifetime первого
+    // экземпляра (Dispose в finally Main). Unavailable — среда не дала
+    // ни мьютекса, ни файла (экзотика): старт продолжается БЕЗ блокировки,
+    // честная строка в протокол вместо краша.
+    private static SingleInstanceGuardResult AcquireSingleInstanceGuard(
+        ILogService log, out IDisposable? handle)
+    {
+        handle = null;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                handle = new Mutex(true, WindowsMutexName, out var createdNew);
+                return createdNew
+                    ? SingleInstanceGuardResult.Acquired
+                    : SingleInstanceGuardResult.AlreadyRunning;
+            }
+
+            // Файл в рабочем каталоге приложения — тот же, где база.
+            var lockPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "ai-job-search-by", "data", "app.lock");
+            Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
+            // FileShare.None: пока первый экземпляр держит поток, второй
+            // открыть его не может — IOException = «уже запущено». На диске
+            // остаётся пустой файл с PID — это норма, блокировка в нём,
+            // не в содержимом.
+            var stream = new FileStream(lockPath, FileMode.OpenOrCreate,
+                FileAccess.ReadWrite, FileShare.None);
+            stream.Write(System.Text.Encoding.UTF8.GetBytes(
+                $"{Environment.ProcessId} {DateTimeOffset.Now:O}\n"));
+            stream.Flush();
+            handle = stream;
+            return SingleInstanceGuardResult.Acquired;
+        }
+        catch (IOException)
+        {
+            // Ресурс занят другим процессом = приложение уже запущено.
+            handle = null;
+            return SingleInstanceGuardResult.AlreadyRunning;
+        }
+        catch (Exception ex)
+        {
+            log.LogWarn($"[один-экземпляр] замок не взялся ({ex.GetType().Name}: {ex.Message}) — " +
+                        "защита от второго запуска выключена; решение: не запускать вручную второй экземпляр");
+            handle = null;
+            return SingleInstanceGuardResult.Unavailable;
+        }
+    }
+
+    // Флаг для App.axaml.cs: вместо главного окна показать окошко
+    // «приложение уже запущено» (путь второго экземпляра).
+    internal static bool ShowAlreadyRunningNotice { get; private set; }
 
     // THREAD: STAThread обязателен — Avalonia требует STA UI-поток.
     [STAThread]
     public static void Main(string[] args)
     {
         // FLOW: протокол -> crash-хендлеры -> контейнер -> Avalonia -> MainWindow.
-        // Контракт «никаких тихих игноров» (LOG-CONTRACT.md): лог — первый объект
+        // Контракт «никаких тихих игноров»: лог — первый объект
         // приложения; тот же экземпляр уходит в DI (CompositionRoot.Build(bootLog)).
-        // Схема аварийных хендлеров — вербатим донора Program.cs (MDC, Task 51):
+        // Схема аварийных хендлеров — см. ниже:
         // UnhandledException + UnobservedTaskException с SetObserved, слово FATAL.
         var bootLog = new LogService();
 
@@ -27,7 +96,7 @@ internal static class Program
             bootLog.LogError($"FATAL UnhandledException: {e.ExceptionObject}");
 
         // 2. Необработанные исключения фоновых задач — в протокол; процесс
-        //    не роняем мгновенно (SetObserved), но событие записано.
+        // не роняем мгновенно (SetObserved), но событие записано.
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             bootLog.LogError($"FATAL UnobservedTaskException: {e.Exception}");
@@ -36,39 +105,88 @@ internal static class Program
 
         bootLog.Log("=== ai-job-search-by: старт ===");
 
-        // Хотфикс 2026-10-22: путь протокола — сразу в баннере (урок владельца
-        // «еле нашёл лог»: теперь путь виден в окне, а не только в Finder-разведке)
+        // Хотфикс: путь протокола — сразу в баннере (урок: лог было трудно
+        // найти; теперь путь виден в окне с первой строки)
         bootLog.Log($"протокол: {bootLog.CurrentLogFilePath}");
+
+        // ОДИН ЭКЗЕМПЛЯР: до мигратора и контейнера — второй экземпляр не
+        // трогает ни базу, ни конфиг, ни сеть (автопроба каталогов не
+        // дублируется). Окошко с ОК показывает App.axaml.cs.
+        var guard = AcquireSingleInstanceGuard(bootLog, out var guardHandle);
+        if (guard == SingleInstanceGuardResult.AlreadyRunning)
+        {
+            bootLog.LogWarn("второй экземпляр: приложение уже запущено — показываю уведомление " +
+                            "и закрываюсь; решение: работать в уже открытом окне");
+            ShowAlreadyRunningNotice = true;
+            try
+            {
+                BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            }
+            catch (Exception ex)
+            {
+                bootLog.LogError($"FATAL Exception in Main: {ex}");
+                throw;
+            }
+
+            return;
+        }
+
+        // слияние старых каталогов —
+        // %APPDATA%\ai-job-search-by и Документы\ai-job-search-by — в один
+        // рабочий %USERPROFILE%\ai-job-search-by\ до сборки контейнера.
+        // Отчёт — в протокол; сбой не валит старт (внутри Run).
+        LegacyPathMigrator.Run(bootLog);
 
         try
         {
             Services = CompositionRoot.Build(bootLog);
-            ProbeCatalogsInBackground(bootLog); // проба каталогов ИИ — фоновая, UI не ждёт
+            // Требование: автопроба провайдеров автоматом
+            // при запуске — НУЖНА, поиск — нет. Разбор: на старте НИКОГДА
+            // не запускался и не запускается ПОИСК вакансий (он только по
+            // кнопке) — единственная сетевая активность старта была и есть
+            // проба каталогов моделей ИИ-провайдеров: она
+            // красит лампы звеньев зелёным/красным ещё до нажатий. Пробу
+            // возвращаем; поиск вакансий сам не стартует — проверено.
+            ProbeCatalogsInBackground(bootLog);
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             bootLog.LogSuccess("приложение завершено штатно");
         }
         catch (Exception ex)
         {
-            // НИ-1: что делали / что поймали / что решили — решение: наружу,
+            // что делали / что поймали / что решили — решение: наружу,
             // процесс завершается аварийно, но причина уже в протоколе.
             bootLog.LogError($"FATAL Exception in Main: {ex}");
             throw;
         }
+        finally
+        {
+            // Замок единственности держим весь lifetime первого экземпляра;
+            // Dispose снимает его — следующий запуск стартует штатно.
+            guardHandle?.Dispose();
+        }
     }
 
+    // Проба каталогов моделей на старте — сознательное решение:
+    // автопроба провайдеров нужна (лампы), а поиск вакансий сам не стартует.
+    // Кнопка «Проверить всех» (CheckAllAsync в VM) остаётся —
+    // ручная перепроверка поверх автопробы.
+
     // FLOW: старт приложения -> фоновая проба каталога моделей каждого облачного
-    //        провайдера (LLM7 — всегда, ModelScope/SiliconFlow — только с введённым
-    //        ключом) -> исходы в протокол. Локальные (ollama/lm-studio) НЕ пробуем:
-    //        сервер часто сознательно выключен, их готовность громко кричит при
-    //        первом же запросе (Busy с причиной). Проба не блокирует UI и не роняет
-    //        старт: ProbeModelsAsync ловит всё внутри (НИ-3), наружный try/catch —
-    //        страховка от регрессии (НИ-1). Основание: LLM7-INTEGRATION.md §7 п.3
-    //        («ProbeModelsAsync — один раз при старте приложения»).
+    // провайдера (LLM7 — всегда, ModelScope/SiliconFlow — только с введённым
+    // ключом) -> исходы в протокол И В ЛАМПЫ КАРТОЧЕК:
+    // лампочки загораются после успеха — зелёные,
+    // после неудачи — красные; каждый исход уходит в StartupProbeHub
+    // (событие + снимок для окна, открывшегося позже пробы). Локальные
+    // (ollama/lm-studio) НЕ пробуем: сервер часто сознательно выключен,
+    // их готовность громко кричит при первом же запросе (Busy с причиной).
+    // Проба не блокирует UI и не роняет старт: ProbeModelsAsync ловит всё
+    // внутри, наружный try/catch — страховка от регрессии.
+    // ProbeModelsAsync — один раз при старте приложения.
     private static void ProbeCatalogsInBackground(ILogService log)
     {
         try
         {
-            var probes = new List<(string Name, Func<Task> Run)>();
+            var probes = new List<(string Name, Func<Task<bool>> Run)>();
             foreach (var p in Services!.GetServices<Services.Ai.IAiChatProvider>())
             {
                 switch (p)
@@ -81,7 +199,7 @@ internal static class Program
                         break;
                 }
             }
-            if (probes.Count == 0) return; // без ключей облачных пробы нет — ctor уже кричал причины (НИ-2)
+            if (probes.Count == 0) return; // без ключей облачных пробы нет — ctor уже кричал причины
 
             log.Log($"[probe] проба каталога моделей на старте: {string.Join(", ", probes.Select(x => x.Name))}");
             _ = Task.Run(async () =>
@@ -90,13 +208,17 @@ internal static class Program
                 {
                     try
                     {
-                        await run();
+                        // ProbeModelsAsync ловит сбои внутри и возвращает
+                        // bool — красная лампа ставится и по false, не только по исключению.
+                        var ok = await run().ConfigureAwait(false);
+                        StartupProbeHub.Publish(name, ok);
                     }
                     catch (Exception ex)
                     {
-                        // НИ-1: проба не должна падать наружу даже при регрессии — кричим и живём.
+                        // проба не должна падать наружу даже при регрессии — кричим и живём.
                         log.LogError($"[probe] сбой пробы {name}: {ex.Message}; " +
                                      "решение: провайдер остаётся в цепи, сверить модель вручную (env *_MODEL)");
+                        StartupProbeHub.Publish(name, ok: false);
                     }
                 }
             });

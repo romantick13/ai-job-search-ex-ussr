@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Гейт из RFC/rfc-004-keys-and-hygiene.md: секреты не попадают в репозиторий.
+  # Гейт: секреты не попадают в репозиторий.
   # Паттерны написаны с символьными классами, чтобы не совпадать сами с собой.
   secrets-guard:
     name: secrets-guard (ключи не в репо)
@@ -70,11 +70,17 @@ jobs:
           walk(data)
           print("registry.json OK")
           PY
-      - name: FUNDING.yml присутствует (кнопка Sponsor)
-        run: test -f .github/FUNDING.yml
+      - name: FUNDING.yml — без адресов-заглушек
+        run: |
+          test -f .github/FUNDING.yml
+          # Кнопка Sponsor не должна вести в никуда: неполных адресов
+          # вида 'https://boosty.to/<...>' в файле быть не должно.
+          if grep -nE "https://[^ ]*<[^>]*>" .github/FUNDING.yml; then
+            echo "::error::FUNDING.yml содержит адрес-заглушку <...> — подставьте реальные страницы или закомментируйте запись"
+            exit 1
+          fi
 
-  # Каркас создан (WP-0): job активируется при наличии решения в репо
-  # (решение живёт в src/ — PLAN.md §6).
+  # Job активируется при наличии решения в репо (src/ai-job-search-by.sln).
   build-test:
     name: build + test
     if: ${{ hashFiles('**/*.sln') != '' }}

@@ -5,9 +5,9 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: Core-адаптеры WP-U1 (remoteok/remotive/jobicy — JSON API, wwr/
-// himalayas/nodesk — RSS). Golden-фикстуры сняты живым зондом 2026-10-22 —
-// смена схемы источника делает тест красным (§2.10). Сеть выключена —
+// FLOW: Core-адаптеры (remoteok/remotive/jobicy — JSON API, wwr/
+// himalayas/nodesk — RSS). Golden-фикстуры сняты живым зондом —
+// смена схемы источника делает тест красным. Сеть выключена —
 // FakeHttpHandler; URL-строители проверяются на перехваченном запросе.
 public class PortalAdapterTests
 {
@@ -38,7 +38,7 @@ public class PortalAdapterTests
     [Fact]
     public async Task RemoteOk_ParsesItems_SkipsMetaRecord()
     {
-        // Первый элемент массива — мета-запись API (legal) без position: пропуск.
+// Первый элемент массива — мета-запись API (legal) без position: пропуск.
         const string payload = """
             [
               {"legal":"API Terms","last_updated":1792656004},
@@ -129,7 +129,7 @@ public class PortalAdapterTests
     [Fact]
     public async Task Wwr_SplitsCompanyFromTitle()
     {
-        // Формат ленты «Компания: Должность» (зонд 2026-10-22).
+// Формат ленты «Компания: Должность» (зонд).
         const string payload = """
             <?xml version="1.0" encoding="UTF-8"?>
             <rss version="2.0"><channel>
@@ -160,7 +160,7 @@ public class PortalAdapterTests
     [Fact]
     public async Task Himalayas_ParsesCdataFeed()
     {
-        // Title в CDATA; компания/регион в ленте отсутствуют — честно null.
+// Title в CDATA; компания/регион в ленте отсутствуют — честно null.
         const string payload = """
             <?xml version="1.0" encoding="UTF-8"?>
             <rss version="2.0"><channel>
@@ -188,7 +188,7 @@ public class PortalAdapterTests
     [Fact]
     public async Task Nodesk_SplitsCompanyFromAtTitle()
     {
-        // Формат ленты «Должность at Компания» (зонд 2026-10-22).
+// Формат ленты «Должность at Компания» (зонд).
         const string payload = """
             <?xml version="1.0" encoding="utf-8"?>
             <rss version="2.0"><channel>

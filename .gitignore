@@ -117,7 +117,5 @@ RFC-*.*
 # Каталоги порталов — публичные доки (README ссылается 5 раз):
 !portals-catalog.md
 !portals-graveyard.md
-# Карта донора — провенанс:
-!donor-map-ai-job-search-by.md
-# Дословная копия донора (rfc-007):
 !prompts/raw/claude/settings.json
+

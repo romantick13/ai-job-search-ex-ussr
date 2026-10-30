@@ -6,10 +6,10 @@ namespace AiJobSearchBy.Portals;
 
 // FLOW: адаптер Jobicy на публичном JSON API v2 (Access=OfficialApi, Auth=None,
 // карточка BuiltInPortals.Core). Поиск серверный: GET /api/v2/remote-jobs
-// ?count=50&tag={query} — параметр tag подтверждён живым зондом 2026-10-22.
+// ?count=50&tag={query} — параметр tag подтверждён живым зондом.
 // Схема: {jobs: [{id, url, jobTitle, companyName, jobGeo, jobType, pubDate,
 // jobDescription, ...}]} (golden-фикстура в тестах).
-// THREAD: HttpClient потокобезопасен; вызовы оркестратора последовательны (§6).
+// THREAD: HttpClient потокобезопасен; вызовы оркестратора последовательны.
 public sealed class JobicyPortal : ApiPortalBase
 {
     private const string SearchEndpoint = "https://jobicy.com/api/v2/remote-jobs";
@@ -19,29 +19,42 @@ public sealed class JobicyPortal : ApiPortalBase
     {
     }
 
-    private static PortalDescriptor BuildDescriptor() => new()
-    {
-        Id = "jobicy",
-        DisplayName = "Jobicy",
-        SourceClass = PortalSourceClass.Commercial,
-        Access = PortalAccessKind.OfficialApi,
-        Auth = PortalAuthKind.None,
-        DefaultPriority = 7,
-        ApplySupported = true,
-    };
+    private static PortalDescriptor BuildDescriptor() => BuiltInPortals.CoreCard("jobicy");
 
+    // Живой кейс: поиск «*» → HTTP 400 — jobicy не
+    // понимает tag=%2A. «*» (маркер «каталог целиком» из оркестратора)
+    // считается пустым запросом — параметр tag вообще не уходит.
     protected override string BuildSearchUrl(string query)
-        => string.IsNullOrWhiteSpace(query)
+        => string.IsNullOrWhiteSpace(query) || query.Trim() == "*"
             ? $"{SearchEndpoint}?count=50"
             : $"{SearchEndpoint}?count=50&tag={Uri.EscapeDataString(query)}";
 
-    // Детальная карточка — следующий WP (оркестратор): SearchAsync уже несёт
+    // Детальная карточка — задача оркестратора: SearchAsync уже несёт
     // описание вакансии, честный отказ вместо выдуманной реализации.
+    // (SupportsDetail=false наследуется от ApiPortalBase.)
     public override Task<JobPosting> DetailAsync(
         string idOrUrl, CancellationToken ct = default)
         => throw new NotSupportedException(
-            "детальная карточка jobicy придёт с оркестратором (WP-P2); "
+            "детальная карточка jobicy придёт с оркестратором; "
             + "SearchAsync уже возвращает описание вакансии");
+
+
+    // jobicy отдаёт jobType/jobIndustry МАССИВАМИ («["Full-Time"]») — GetString
+    // на массиве падает и ронял ВЕСЬ каталог. Читаем терпимо: String → текст;
+    // Array → join «, »; Number/True/False → raw; Object/null → null.
+    private static string? SafeText(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.GetRawText(),
+        JsonValueKind.Array => string.Join(", ", element.EnumerateArray()
+            .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() : e.GetRawText())
+            .Where(s => !string.IsNullOrWhiteSpace(s))),
+        _ => null,
+    };
+
+    // Полевые чтения одним вызовом: нет свойства / нечитаемый вид — null.
+    private static string? Field(JsonElement item, string name)
+        => item.TryGetProperty(name, out var el) ? SafeText(el) : null;
 
     protected override Task<IReadOnlyList<JobPosting>> ParseSearchAsync(
         string payload, CancellationToken ct)
@@ -57,55 +70,42 @@ public sealed class JobicyPortal : ApiPortalBase
         var result = new List<JobPosting>();
         foreach (var item in jobs.EnumerateArray())
         {
-            // url обязателен (canonical_url NOT NULL схемы §4); его отсутствие
-            // = смена схемы — ParseFailedException (как у hh-by).
-            if (!item.TryGetProperty("url", out var urlEl)
-                || urlEl.GetString() is not { Length: > 0 } canonicalUrl)
+            // url обязан быть, но битый ОДИН item больше не валит весь
+            // каталог (был ParseFailedException на первом же кривом элементе —
+            // 45 вакансий в мусор из-за одной). Пропуск — с событием .
+            if (item.TryGetProperty("url", out var urlEl)
+                && urlEl.ValueKind == JsonValueKind.String
+                && urlEl.GetString() is { Length: > 0 } canonicalUrl)
             {
-                throw new ParseFailedException("схема payload сменилась: job без url");
-            }
+                var externalId = Field(item, "id");
+                var title = Field(item, "jobTitle");
+                var company = Field(item, "companyName");
+                var location = Field(item, "jobGeo");
+                var jobType = Field(item, "jobType");
+                // Описание: jobDescription, при его отсутствии — jobExcerpt
+                // (обе схемы встречаются в живом каталоге, зонд).
+                var description = Field(item, "jobDescription") ?? Field(item, "jobExcerpt");
 
-            var externalId = item.TryGetProperty("id", out var id)
-                ? id.ValueKind == JsonValueKind.Number ? id.GetRawText() : id.GetString()
-                : null;
-            var title = item.TryGetProperty("jobTitle", out var titleEl)
-                ? titleEl.GetString()
-                : null;
-            var company = item.TryGetProperty("companyName", out var companyEl)
-                ? companyEl.GetString()
-                : null;
-            var location = item.TryGetProperty("jobGeo", out var geoEl)
-                ? geoEl.GetString()
-                : null;
-            var jobType = item.TryGetProperty("jobType", out var typeEl)
-                ? typeEl.GetString()
-                : null;
-            // Описание: jobDescription, при его отсутствии — jobExcerpt
-            // (обе схемы встречаются в живом каталоге, зонд 2026-10-22).
-            string? description = null;
-            if (item.TryGetProperty("jobDescription", out var descEl))
-            {
-                description = descEl.GetString();
+                result.Add(new JobPosting
+                {
+                    PortalId = Descriptor.Id,
+                    ExternalId = externalId,
+                    CanonicalUrl = canonicalUrl,
+                    Title = title,
+                    Company = company,
+                    Location = location,
+                    SalaryText = jobType,
+                    DescriptionMd = description,
+                    SourceClass = Descriptor.SourceClass,
+                    AccessKind = Descriptor.Access,
+                    DedupeHash = DedupeHasher.ComputeComposite(Descriptor.Id, externalId, canonicalUrl),
+                });
             }
-            if (description is null && item.TryGetProperty("jobExcerpt", out var excerptEl))
+            else
             {
-                description = excerptEl.GetString();
+                Log.LogWarn($"skip: {Descriptor.Id} — item без url пропущен (title: "
+                            + $"{Field(item, "jobTitle") ?? "—"}); остальные элементы каталога обрабатываются");
             }
-
-            result.Add(new JobPosting
-            {
-                PortalId = Descriptor.Id,
-                ExternalId = externalId,
-                CanonicalUrl = canonicalUrl,
-                Title = title,
-                Company = company,
-                Location = location,
-                SalaryText = jobType,
-                DescriptionMd = description,
-                SourceClass = Descriptor.SourceClass,
-                AccessKind = Descriptor.Access,
-                DedupeHash = DedupeHasher.ComputeComposite(Descriptor.Id, externalId, canonicalUrl),
-            });
         }
 
         return Task.FromResult<IReadOnlyList<JobPosting>>(result);

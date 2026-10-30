@@ -1,17 +1,17 @@
-# PYDOC: script_id=gen_readme_counters; version=1.0; role=utility; layer=reporting
-# PYDOC: desc=регенерация генерируемых блоков README.md из config/registry.json (schema v3): таблица порталов + таблица AI-провайдеров, profile=me не публикуется, сверка expected_counts.authless_default (код 0 ok, 1 проблемы реестра, 2 счётчик разошёлся); in_file=config/registry.json, README.md; out_file=README.md (in-place между маркерами PORTAL_TABLE и AI_PROVIDER_TABLE); entry=python tools/gen_readme_counters.py (без аргументов, из корня репо); deps=stdlib (json,re,sys,pathlib); cfg_src=нет; flow=config/registry.json -> gen_readme_counters.py -> README.md; uses=CI docs-consistency, donor-map §6.5; one_shot=no
+# PYDOC: script_id=gen_readme_counters; version=1.2; role=utility; layer=reporting
+# PYDOC: desc=регенерация генерируемых блоков README.md из config/registry.json (schema v3): таблица порталов + таблица AI-провайдеров, profile=me не публикуется, сверка expected_counts.authless_default (код 0 ok, 1 проблемы реестра, 2 счётчик разошёлся); in_file=config/registry.json, README.md; out_file=README.md (PORTAL_TABLE) + docs/PROVIDERS.md (AI_PROVIDER_TABLE), in-place; entry=python tools/gen_readme_counters.py (без аргументов, из корня репо); deps=stdlib (json,re,sys,pathlib); cfg_src=нет; flow=config/registry.json -> gen_readme_counters.py -> README.md; uses=CI docs-consistency; one_shot=no
 """One-shot helper: regenerate the generated blocks in README.md from the portal registry.
 
 Запуск (из корня репозитория):
 
     python tools/gen_readme_counters.py
 
-Файл хранить в UTF-8 без BOM (канон репозитория, RFC-007).
+Файл хранить в UTF-8 без BOM.
 
 Что делает:
   * читает config/registry.json — ЕДИНЫЙ источник правды (schema_version 3);
   * считает порталы в цепочке по умолчанию и отдельно — доступные без
-    ключа и авторизации (access = none | rss);
+    ключа и авторизации (access = none | rss | scrape);
   * подставляет результаты в README.md между маркерами:
         <!-- PORTAL_TABLE:BEGIN -->     ... <!-- PORTAL_TABLE:END -->
         <!-- AI_PROVIDER_TABLE:BEGIN -->  ... <!-- AI_PROVIDER_TABLE:END -->
@@ -37,7 +37,7 @@
   * не удаляет и не перемещает файлы.
 
 Скрипт one-shot: запускается вручную или из CI (джоба docs-consistency).
-В рантайме продукта Python не участвует (RFC-001).
+В рантайме продукта Python не участвует.
 """
 
 from __future__ import annotations
@@ -56,15 +56,18 @@ for _stream in (sys.stdout, sys.stderr):
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / "config" / "registry.json"
 README = ROOT / "README.md"
+PROVIDERS_DOC = ROOT / "docs" / "PROVIDERS.md"
 
-# Доступ, не требующий ни ключа, ни входа в аккаунт.
-AUTHLESS_ACCESS = {"none", "rss"}
+# Доступ, не требующий ни ключа, ни входа в аккаунт (scrape — HTML-выдача
+# без регистрации: зеркала hh).
+AUTHLESS_ACCESS = {"none", "rss", "scrape"}
 
 ACCESS_LABEL = {
     "none": "без авторизации",
     "account": "нужен аккаунт",
     "official_api": "официальное API",
     "rss": "RSS",
+    "scrape": "без авторизации (HTML)",
 }
 
 TOS_LABEL = {
@@ -77,6 +80,8 @@ TOS_LABEL = {
 COUNTRY_LABEL = {
     "BY": "🇧🇾",
     "RU": "🇷🇺",
+    "KZ": "🇰🇿",
+    "UZ": "🇺🇿",
     "PL": "🇵🇱",
     "GLOBAL": "🌍",
 }
@@ -171,13 +176,18 @@ def render_portal_table(registry: dict) -> str:
             f"Реестр не заполнен или изменился — не публикуйте README в этом состоянии."
         )
     else:
+        # r21 (решение владельца): чекбоксы порталов по умолчанию выключены —
+        # цепочку юзер собирает галочками, выбор запоминается в базе.
         head = (
-            f"**{count} порталов** работают без авторизации, "
-            f"**{len(chain)}** включены в цепочку по умолчанию."
+            f"**{count} порталов** включены в цепочку по умолчанию (r21: все "
+            f"чекбоксы по умолчанию выключены — цепочку собираешь галочками сам, "
+            f"выбор запоминается). Рабочих адаптеров: "
+            f"**{len([p for p in registry.get('portals', []) if p.get('adapter_implemented', False)])}**."
         )
 
     lines = [head, "", "| Портал | Домен | Страна | Доступ | Статус ToS |", "|---|---|---|---|---|"]
-    for p in sorted(chain, key=lambda x: (x.get("country", ""), x.get("name", ""))):
+    wired = [p for p in registry.get("portals", []) if p.get("adapter_implemented", False)]
+    for p in sorted(wired, key=lambda x: (x.get("country", ""), x.get("name", ""))):
         country = COUNTRY_LABEL.get(p.get("country", ""), p.get("country", "—"))
         lines.append(
             f"| {p.get('name', p['id'])} | `{p.get('domain', '—')}` | {country} | "
@@ -238,12 +248,18 @@ def main() -> int:
 
     text = README.read_text(encoding="utf-8")
     text = replace_block(text, "PORTAL_TABLE", render_portal_table(registry))
-    text = replace_block(text, "AI_PROVIDER_TABLE", render_ai_table(registry))
     README.write_text(text, encoding="utf-8", newline="")
+
+    # AI_PROVIDER_TABLE живёт в профильном справочнике docs/PROVIDERS.md
+    # (ревизия 2026-10-28: README сокращён, таблицы квот/моделей — в доки).
+    providers_text = PROVIDERS_DOC.read_text(encoding="utf-8")
+    providers_text = replace_block(providers_text, "AI_PROVIDER_TABLE",
+                                   render_ai_table(registry))
+    PROVIDERS_DOC.write_text(providers_text, encoding="utf-8", newline="")
 
     count = len(authless(registry))
     expected = expected_authless(registry)
-    print("README.md обновлён из реестра.")
+    print("README.md (PORTAL_TABLE) и docs/PROVIDERS.md (AI_PROVIDER_TABLE) обновлены из реестра.")
     print(f"  порталов в цепочке по умолчанию: {len(default_chain(registry))}")
     print(f"  без ключа и авторизации: {count}")
     if expected is not None and count != expected:

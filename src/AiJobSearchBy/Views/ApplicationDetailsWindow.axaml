@@ -6,16 +6,18 @@
         mc:Ignorable="d"
         d:DesignWidth="620" d:DesignHeight="560"
         x:Class="AiJobSearchBy.Views.ApplicationDetailsWindow"
-        Title="Отправленный отклик — ai-job-search-by"
+        Title="Адаптированный отклик — ai-job-search-by"
         Width="640" Height="620" MinWidth="520" MinHeight="420"
         WindowStartupLocation="CenterOwner"
         Background="#0A1A14"
         FontFamily="Segoe UI, Noto Sans, sans-serif">
 
-  <!-- WP-U1 (требование владельца): модальное окно истории — «при клике
-       открывается вариант резюме, которое отправил». Метаданные + текст
-       отправленного резюме + кнопки: PDF с диска, вакансия в браузере.
-       Стиль — Emerald Crystal. -->
+ <!-- (требование ): модальное окно истории — «при клике
+ открывается вариант резюме. Честная семантика (решение владельца
+ 2026-10-29): строка истории = успешная адаптация, НЕ факт отправки —
+ отклик на сайте отправляет человек. Метаданные + текст резюме +
+ кнопки: копировать в буфер, правки, PDF, вакансия в браузере.
+ Стиль — Emerald Crystal. -->
   <Window.Resources>
     <SolidColorBrush x:Key="GlassBrush" Color="#E61A2E26"/>
     <SolidColorBrush x:Key="AccentBrush" Color="#50FFB0"/>
@@ -24,6 +26,11 @@
   </Window.Resources>
 
   <Window.Styles>
+ <!-- обычный текст окна — белый (требование);
+ hint/panel-title ниже переопределяют этот стиль -->
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="White"/>
+    </Style>
     <Style Selector="Border.glass">
       <Setter Property="Background" Value="{StaticResource GlassBrush}"/>
       <Setter Property="BorderBrush" Value="{StaticResource CardEdge}"/>
@@ -45,41 +52,53 @@
 
   <DockPanel Margin="16">
 
-    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10">
-      <Button Grid.Column="1" x:Name="OpenVacancyButton" Content="Открыть вакансию"
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,10">
+      <Button Grid.Column="1" x:Name="EditResumeButton" Content="Править резюме"
               FontSize="11.5" Padding="10,4"/>
-      <Button Grid.Column="2" x:Name="OpenPdfButton" Content="Открыть PDF"
+      <Button Grid.Column="2" x:Name="EditDocxButton" Content="Править DOCX"
               FontSize="11.5" Padding="10,4" Margin="8,0,0,0"/>
-      <Button Grid.Column="3" x:Name="CloseButton" Content="Закрыть"
+      <Button Grid.Column="3" x:Name="OpenVacancyButton" Content="Открыть вакансию"
+              FontSize="11.5" Padding="10,4" Margin="8,0,0,0"/>
+      <Button Grid.Column="4" x:Name="OpenPdfButton" Content="Открыть PDF"
+              FontSize="11.5" Padding="10,4" Margin="8,0,0,0"/>
+      <Button Grid.Column="5" x:Name="CloseButton" Content="Закрыть"
               FontSize="11.5" Padding="10,4" Margin="8,0,0,0"/>
     </Grid>
 
     <StackPanel DockPanel.Dock="Bottom" Spacing="2" Margin="0,10,0,0">
+      <TextBlock x:Name="HonestHintText" Classes="hint" Foreground="#D8C68A"/>
       <TextBlock x:Name="PdfPathText" Classes="hint" TextTrimming="CharacterEllipsis"/>
-      <TextBlock x:Name="VectorText" Classes="hint"/>
-      <TextBlock Classes="hint"
-                 Text="Векторная ссылка (локальная модель Qwen3-Embedding) позволяет всегда вернуться к отправленному варианту — файлы PDF остаются на диске в папке откликов."/>
     </StackPanel>
 
     <Border Classes="glass" Padding="14">
-      <StackPanel Spacing="8">
-        <StackPanel Orientation="Horizontal" Spacing="10">
+ <!-- ( «окно с резюме вылазит внизу за пределы
+ модального окна»): было StackPanel + TextBox Min260/Max420 —
+ StackPanel не сжимает TextBox, Border не клипует, текст вылезал
+ за нижний край окна. Стало Grid со звёздной строкой: TextBox
+ занимает ровно доступное место и скроллится сам. -->
+      <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
           <TextBlock x:Name="EmployerText" FontSize="17" FontWeight="Bold"/>
           <TextBlock x:Name="SentText" FontSize="14"
                      Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center"/>
         </StackPanel>
-        <TextBlock x:Name="TitleText" FontSize="12.5" Classes="hint"/>
-        <TextBlock x:Name="UrlText" FontSize="11" TextWrapping="Wrap"
+        <TextBlock Grid.Row="1" x:Name="TitleText" FontSize="12.5" Classes="hint"/>
+        <TextBlock Grid.Row="2" x:Name="UrlText" FontSize="11" TextWrapping="Wrap"
                    Foreground="{StaticResource AccentBrush}"/>
-        <TextBlock Text="Вариант резюме, который был отправлен" Classes="panel-title" Margin="0,4,0,0"/>
-        <Border BorderBrush="{StaticResource CardEdge}" BorderThickness="1" CornerRadius="8">
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,4,0,4">
+          <TextBlock Text="Вариант резюме для отклика" Classes="panel-title" VerticalAlignment="Center"/>
+          <Button Grid.Column="1" x:Name="CopyButton" Content="Скопировать в буфер"
+                  FontSize="11.5" Padding="10,4"
+                  ToolTip.Tip="Текст резюме из окна ниже — в буфер обмена: вставляй в форму отклика на сайте, в письмо или в файл"/>
+        </Grid>
+        <Border Grid.Row="4" BorderBrush="{StaticResource CardEdge}" BorderThickness="1" CornerRadius="8">
           <TextBox x:Name="ResumeTextBox"
                    IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
-                   FontSize="12" Background="Transparent" BorderThickness="0"
-                   MinHeight="260" MaxHeight="420"
+                   FontSize="12" Foreground="White"
+                   Background="Transparent" BorderThickness="0"
                    ScrollViewer.VerticalScrollBarVisibility="Auto"/>
         </Border>
-      </StackPanel>
+      </Grid>
     </Border>
 
   </DockPanel>

@@ -10,16 +10,14 @@
         Title="Настройки — ai-job-search-by"
         Width="560" MinWidth="480"
         SizeToContent="Height"
-        MaxHeight="760"
         WindowStartupLocation="CenterOwner"
-        CanResize="False"
         Background="#0A1A14"
         FontFamily="Segoe UI, Noto Sans, sans-serif">
 
-  <!-- WP-U1: отдельное МОДАЛЬНОЕ окно настроек (решение владельца: шестерёнка
-       сверху справа -> настройки). Ключи пишутся в local.json атомарно
-       (ConfigService.UpdateAiKey, маска в протоколе); применяются после
-       перезапуска приложения — честная плашка внизу. Стиль — Emerald Crystal. -->
+ <!-- отдельное МОДАЛЬНОЕ окно настроек ( шестерёнка
+ сверху справа -> настройки). Ключи пишутся в local.json атомарно
+ (ConfigService.UpdateAiKey, маска в протоколе); применяются после
+ перезапуска приложения — честная плашка внизу. Стиль — Emerald Crystal. -->
   <Window.Resources>
     <SolidColorBrush x:Key="GlassBrush" Color="#E61A2E26"/>
     <SolidColorBrush x:Key="AccentBrush" Color="#50FFB0"/>
@@ -28,6 +26,11 @@
   </Window.Resources>
 
   <Window.Styles>
+ <!-- обычный текст окна — белый (требование);
+ hint/panel-title ниже переопределяют этот стиль -->
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="White"/>
+    </Style>
     <Style Selector="Border.glass">
       <Setter Property="Background" Value="{StaticResource GlassBrush}"/>
       <Setter Property="BorderBrush" Value="{StaticResource CardEdge}"/>
@@ -50,7 +53,9 @@
   <StackPanel Margin="16" Spacing="10">
 
     <StackPanel Spacing="2">
-      <TextBlock Text="Настройки" FontSize="18" FontWeight="Bold"/>
+ <!-- заголовок окна — едко-зелёный, как в главном окне -->
+      <TextBlock Text="Настройки" FontSize="18" FontWeight="Bold"
+                 Foreground="{StaticResource AccentBrush}"/>
       <TextBlock Classes="hint"
                  Text="Ключи лежат в local.json — файл вне репо (%APPDATA%\ai-job-search-by\), в git не попадает. Вступают в силу после перезапуска приложения."/>
     </StackPanel>
@@ -58,38 +63,47 @@
     <Border Classes="glass" Padding="14">
       <StackPanel Spacing="10">
         <TextBlock Text="Ключи провайдеров" Classes="panel-title"/>
-        <ItemsControl ItemsSource="{Binding Rows}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:SettingsRow">
-              <StackPanel Spacing="3" Margin="0,0,0,8">
-                <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"/>
-                <TextBox Text="{Binding ApiKey}" PlaceholderText="API-ключ"
-                         FontFamily="Consolas, 'DejaVu Sans Mono', monospace" FontSize="11.5"/>
-                <TextBlock Classes="hint" Text="{Binding Hint}"/>
-              </StackPanel>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-      </StackPanel>
-    </Border>
-
-    <Border Classes="glass" Padding="14">
-      <StackPanel Spacing="8">
-        <TextBlock Text="Локальная векторизация (эмбеддер)" Classes="panel-title"/>
-        <StackPanel Spacing="3">
-          <TextBlock Text="Адрес рантайма (OpenAI-совместимый /v1)" FontSize="12"/>
-          <TextBox Text="{Binding EmbeddingsBaseUrl}" FontSize="11.5"
-                   FontFamily="Consolas, 'DejaVu Sans Mono', monospace"
-                   PlaceholderText="http://127.0.0.1:11434/v1"/>
-        </StackPanel>
-        <StackPanel Spacing="3">
-          <TextBlock Text="Модель эмбеддингов" FontSize="12"/>
-          <TextBox Text="{Binding EmbeddingsModel}" FontSize="11.5"
-                   FontFamily="Consolas, 'DejaVu Sans Mono', monospace"
-                   PlaceholderText="qwen3-embedding:0.6b"/>
+ <!-- звеньев может стать много («Добавить провайдера»/«Добавить
+ модель») — секция листается, окно остаётся прежнего размера -->
+        <ScrollViewer MaxHeight="330" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl ItemsSource="{Binding Rows}" Margin="0,0,4,0">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SettingsRow">
+                <StackPanel Spacing="3" Margin="0,0,0,10">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
+                               IsVisible="{Binding !IsCustom}"/>
+                    <TextBlock Text="{Binding CustomName}" FontSize="13" FontWeight="SemiBold"
+                               IsVisible="{Binding IsCustom}"/>
+                    <Button Grid.Column="1" Content="удалить"
+                            IsVisible="{Binding IsCustom}"
+                            Command="{Binding $parent[ItemsControl].DataContext.RemoveRowCommand}"
+                            CommandParameter="{Binding}"
+                            FontSize="10.5" Padding="6,1"/>
+                  </Grid>
+                  <TextBox Text="{Binding CustomName}" PlaceholderText="имя провайдера (например, OpenRouter)"
+                           FontSize="12" IsVisible="{Binding IsCustom}"/>
+                  <TextBox Text="{Binding BaseUrl}" PlaceholderText="адрес OpenAI-совместимого API (…/v1/)"
+                           FontFamily="Consolas, 'DejaVu Sans Mono', monospace" FontSize="11.5"
+                           IsVisible="{Binding IsCustom}"/>
+                  <TextBox Text="{Binding CustomModel}" PlaceholderText="модель (id из каталога провайдера)"
+                           FontFamily="Consolas, 'DejaVu Sans Mono', monospace" FontSize="11.5"
+                           IsVisible="{Binding IsCustom}"/>
+                  <TextBox Text="{Binding ApiKey}" PlaceholderText="API-ключ"
+                           FontFamily="Consolas, 'DejaVu Sans Mono', monospace" FontSize="11.5"/>
+                  <TextBlock Classes="hint" Text="{Binding Hint}"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Command="{Binding AddProviderCommand}" Content="Добавить провайдера" FontSize="12"/>
+          <Button Command="{Binding AddModelCommand}" Content="Добавить модель" FontSize="12"/>
         </StackPanel>
         <TextBlock Classes="hint"
-                   Text="Пустое поле = дефолт Ollama. Модель — Qwen3-Embedding-0.6B (Apache-2.0). Ollama: ollama pull qwen3-embedding:0.6b; LM Studio — http://127.0.0.1:1234/v1; llama-server — http://127.0.0.1:8080/v1. Векторы не обязательны: без рантайма PDF, тексты и история работают."/>
+                   Text="Кастомные звенья сохраняются в local.json (Chain.Custom) и появляются карточками на главном экране сразу; в рабочую цепь адаптации входят после перезапуска. VPN/прокси для заблокированных провайдеров — на вашей совести."/>
       </StackPanel>
     </Border>
 
@@ -103,12 +117,12 @@
                   Content="Выбрать…" Margin="8,0,0,0" FontSize="11.5"/>
         </Grid>
         <TextBlock Classes="hint"
-                   Text="Сюда складываются PDF отправленных резюме (имя: работодатель_дата-время). Первый запуск проиндексирует содержимое — векторы строит локальный эмбеддер, если рантайм запущен."/>
+                   Text="Сюда складываются PDF отправленных резюме (имя: работодатель_дата-время). Первый запуск проиндексирует содержимое — извлечённый текст попадает в базу (r21: без векторов, векторизация вырезана)."/>
       </StackPanel>
     </Border>
 
     <Grid ColumnDefinitions="*,Auto,Auto">
-      <Button Grid.Column="1" Command="{Binding DoneCommand}" Content="Закрыть без сохранения" FontSize="12"/>
+      <Button Grid.Column="1" Command="{Binding DoneCommand}" Content="Отмена" FontSize="12"/>
       <Button Grid.Column="2" Command="{Binding SaveCommand}" Content="Сохранить" FontWeight="SemiBold"
               Margin="8,0,0,0"/>
     </Grid>

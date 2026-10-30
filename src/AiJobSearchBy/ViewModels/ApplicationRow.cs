@@ -2,8 +2,8 @@ using System.IO;
 
 namespace AiJobSearchBy.ViewModels;
 
-// WP-U1: строка окна истории откликов — «работодатель, дата-время отправки»
-// (требование владельца); клик открывает модальное окно с вариантом резюме.
+// строка окна истории откликов — «работодатель, дата-время отправки»;
+// клик открывает модальное окно с вариантом резюме.
 // STATE: immutable проекция ApplicationRecord.
 public sealed class ApplicationRow
 {
@@ -21,5 +21,5 @@ public sealed class ApplicationRow
 
     public bool PdfExists => !string.IsNullOrWhiteSpace(Record.CvPath) && File.Exists(Record.CvPath);
 
-    public bool VectorPresent => !string.IsNullOrWhiteSpace(Record.VectorJson);
+    // r21: VectorPresent вырезан вместе с векторизацией (в UI не использовался).
 }

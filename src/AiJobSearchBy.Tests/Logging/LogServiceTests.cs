@@ -12,7 +12,7 @@ namespace AiJobSearchBy.Tests.Logging;
 // STATE: tmp-каталоги одноразовые; echoToConsole: false — чтобы не шуметь в выводе тестов
 public class LogServiceTests
 {
-    // internal: переиспользуется Ai-тестами (WP-A-LLM7, Task 54) — единый tmp-каталог
+    // internal: переиспользуется Ai-тестами (-LLM7, ) — единый tmp-каталог
     internal static string TempLogDir()
     {
         var dir = Path.Combine(Path.GetTempPath(), "aijsb-log-tests", Guid.NewGuid().ToString("N"));
@@ -23,9 +23,9 @@ public class LogServiceTests
     private static readonly Regex WindowLine =
         new(@"^\[\d{2}:\d{2}:\d{2}\] .+$", RegexOptions.Compiled);
 
-    // Донор MDC/Program.cs: префикс диска с миллисекундами
+    // Решение: дата в первых скобках, время без долей секунды
     private static readonly Regex DiskLine =
-        new(@"^\[\d{2}:\d{2}:\d{2}\.\d{3}\] \[\d{2}:\d{2}:\d{2}\] .+$", RegexOptions.Compiled);
+        new(@"^\[\d{4}-\d{2}-\d{2}\] \[\d{2}:\d{2}:\d{2}\] .+$", RegexOptions.Compiled);
 
     [Fact]
     public void Log_Adds_Timestamped_Line_To_LiveFeed()
@@ -41,9 +41,9 @@ public class LogServiceTests
     [Fact]
     public void CurrentLogFilePath_Points_To_Today_File_On_Disk()
     {
-        // Хотфикс 2026-10-22: баннер старта печатает путь протокола — путь обязан
+        // Хотфикс: баннер старта печатает путь протокола — путь обязан
         // быть живым: та же формула, что в AppendDisk, файл существует после
-        // первой же строки (владелец идёт по напечатанному пути — и находит лог).
+        // первой же строки (пользователь идёт по напечатанному пути — и находит лог).
         var dir = TempLogDir();
         var log = new LogService(dir, echoToConsole: false);
 
@@ -53,6 +53,21 @@ public class LogServiceTests
         Assert.EndsWith($"ai-job-search-by-{DateTime.Now:yyyyMMdd}.log", log.CurrentLogFilePath);
         Assert.True(File.Exists(log.CurrentLogFilePath),
             "файл протокола должен существовать после первой строки");
+    }
+
+    [Fact]
+    public void LogDirectory_Exposes_Injected_Folder_For_Button()
+    {
+        // кнопка «Папка лога» открывает каталог протокола — свойство
+        // обязано отдавать ровно тот каталог, куда AppendDisk пишет строки.
+        var dir = TempLogDir();
+        var log = new LogService(dir, echoToConsole: false);
+
+        log.Log("строка протокола");
+
+        Assert.Equal(dir, log.LogDirectory);
+        Assert.True(Directory.GetFiles(log.LogDirectory, "ai-job-search-by-*.log").Length >= 1,
+            "в каталоге протокола должен лежать файл лога после первой строки");
     }
 
     [Fact]
@@ -85,7 +100,7 @@ public class LogServiceTests
     [Fact]
     public void Every_Entry_Goes_To_Disk_Protocol()
     {
-        // К1: окно и диск получают каждую строку, без исключений
+        // окно и диск получают каждую строку, без исключений
         var dir = TempLogDir();
         var log = new LogService(dir, echoToConsole: false);
 
@@ -107,7 +122,7 @@ public class LogServiceTests
     [Fact]
     public void Clear_Empties_Window_Keeps_Disk_And_Records_Event()
     {
-        // К1: диск — полный протокол, Clear() его не трогает
+        // диск — полный протокол, Clear его не трогает
         var dir = TempLogDir();
         var log = new LogService(dir, echoToConsole: false);
 
@@ -116,7 +131,7 @@ public class LogServiceTests
 
         log.Clear();
 
-        // Донор MDC: Clear опустошает кольцо; наше К1 пишет факт очистки в протокол
+        // Донор MDC: Clear опустошает кольцо; наше пишет факт очистки в протокол
         Assert.Empty(log.Logs);
         var after = File.ReadAllLines(Path.Combine(dir, $"ai-job-search-by-{DateTime.Now:yyyyMMdd}.log"));
         Assert.Equal(before + 1, after.Length); // событие очистки попало в протокол
@@ -126,7 +141,7 @@ public class LogServiceTests
     [Fact]
     public void Disk_Failure_Is_Not_Silent_But_Not_Fatal()
     {
-        // К3: каталог протокола невозможен (на его пути — обычный файл);
+        // каталог протокола невозможен (на его пути — обычный файл);
         // сервис не бросает, лента живёт, сбои считаются публично
         var dir = TempLogDir();
         var blocker = Path.Combine(dir, "это-файл");

@@ -6,7 +6,7 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: гейты базовых классов адаптеров (RFC-003 §2.1/§2.10): API-цикл,
+// FLOW: гейты базовых классов адаптеров: API-цикл,
 // разбор RSS/Atom, breaker polite-crawl, уважение rate-limit заголовков.
 public class PortalBasesTests
 {
@@ -95,7 +95,7 @@ public class PortalBasesTests
     [Fact]
     public async Task ApiPortalBase_HttpError_PropagatesToOrchestrator()
     {
-        // Одна попытка (§3.2): не-2xx не ретраится базой — оркестратор решает.
+        // Одна попытка: не-2xx не ретраится базой — оркестратор решает.
         var handler = new FakeHttpHandler(_ => FakeHttpHandler.Of("gone", "text/plain", 410));
         var portal = new FakeApiPortal(handler);
 
@@ -112,7 +112,7 @@ public class PortalBasesTests
         await Assert.ThrowsAsync<ParseFailedException>(() => portal.SearchAsync("c#"));
     }
 
-    // --------------------------------------------------------------- Feed
+// --------------------------------------------------------------- Feed
 
     private const string RssFeed = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -272,7 +272,7 @@ public class PortalBasesTests
     [Fact]
     public async Task ScrapePortalBase_Breaker_OpensAfterConsecutiveFailures()
     {
-        // §2.10: N подряд падений парсинга → breaker; сетевых запросов после — нет.
+        // N подряд падений парсинга → breaker; сетевых запросов после — нет.
         var handler = PageHandler("PARSE_FAIL", "PARSE_FAIL", "PARSE_FAIL", "page-ok");
         var portal = new FakeScrapePortal(handler, NoWait);
 
@@ -342,8 +342,8 @@ public class PortalBasesTests
     [Fact]
     public async Task ScrapePortalBase_QuotaBelowDonorThreshold_StopsBeforeParsing()
     {
-        // Донорская семантика Atlas GitHubHarvesterService (строки 89–94):
-        // Remaining < 20 → «останавливаюсь до следующего раза» — донор
+        // Донорская семантика (строки 89–94):
+        // Remaining < 20 → «останавливаюсь до следующего раза» —
         // останавливается ДО разбора страницы (тело не парсится), прогон
         // не падает. Вербатим: страница скачана, не разобрана, вторая НЕ
         // качается, ошибок нет.
@@ -365,7 +365,7 @@ public class PortalBasesTests
     public async Task ScrapePortalBase_QuotaAboveDonorThreshold_ContinuesPaging()
     {
         // Контроль порога: Remaining = 25 (>= 20) — пагинация продолжается,
-        // обе страницы собраны (донорский стоп не срабатывает).
+        // обе страницы собраны (стоп не срабатывает).
         var page = 0;
         var handler = new FakeHttpHandler(_ =>
         {
@@ -387,7 +387,7 @@ public class PortalBasesTests
     public async Task ScrapePortalBase_HttpError_DoesNotCountTowardBreaker()
     {
         // Ошибки сети/HTTP ≠ падение парсинга: breaker их не считает —
-        // refused-ветка оркестратора (§5/§7) разберёт.
+        // refused-ветка оркестратора разберёт.
         var handler = new FakeHttpHandler(_ => FakeHttpHandler.Of("gone", "text/plain", (int)HttpStatusCode.Gone));
         var portal = new FakeScrapePortal(handler, NoWait);
 
@@ -395,5 +395,24 @@ public class PortalBasesTests
 
         Assert.False(portal.IsBreakerOpen);
         Assert.Equal(0, portal.ConsecutiveParseFailures);
+    }
+
+    // ---------------------------------------------------------------- r20: SupportsDetail
+
+    [Fact]
+    public void SupportsDetail_FalseForFeedAndApiBases_TrueForScrape()
+    {
+        // Ленты и API-порталы получают описание прямо в ответе поиска —
+        // DetailAsync им не нужен (NotSupportedException). Scrape-базы
+        // (hh-группа) умеют открывать страницу вакансии — true.
+        var feed = new FakeFeedPortal(new FakeHttpHandler(
+            _ => FakeHttpHandler.Of("<rss><channel/></rss>", "application/rss+xml")));
+        var api = new FakeApiPortal(new FakeHttpHandler(_ => FakeHttpHandler.Of("{}", "application/json")));
+        var scrape = new FakeScrapePortal(
+            new FakeHttpHandler(_ => FakeHttpHandler.Of("<html></html>", "text/html")), NoWait);
+
+        Assert.False(feed.SupportsDetail);
+        Assert.False(api.SupportsDetail);
+        Assert.True(scrape.SupportsDetail);
     }
 }

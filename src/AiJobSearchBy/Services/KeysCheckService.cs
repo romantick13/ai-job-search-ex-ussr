@@ -2,13 +2,13 @@ using AiJobSearchBy.Portals;
 
 namespace AiJobSearchBy.Services;
 
-// FLOW: keys-check (RFC-003 §2.9) — on-demand диагностика ключей и пингов
+// FLOW: keys-check — on-demand диагностика ключей и пингов
 // (architecture.md §9). ПОЛИНГ ЗАПРЕЩЁН (architecture.md §3.2): сервис не
 // держит таймеров, вызывается кнопкой UI / при старте прогона.
-// Правила §2.9: auth=none → зелёный сразу; ключевой → наличие в local.json +
+// Правила: auth=none → зелёный сразу; ключевой → наличие в local.json +
 // живой минимальный пинг (per_page=1); нет ключа/пинг мёртв = портал вне цепи
 // С ПРИЧИНОЙ в отчёте, не краш; гео-пинг 403 «region restricted» → GeoBlocked
-// (причина в UI, без сжигания ретраев — RFC-002 §3.8).
+// (причина в UI, без сжигания ретраев).
 public interface IKeysCheckService
 {
     // Диагностика всех зарегистрированных порталов (таблица вердиктов для UI).
@@ -30,8 +30,9 @@ public enum KeyCheckStatus
 // Вердикт по порталу; Reason — человекочитаемая причина для отчёта/UI.
 public sealed record KeyCheckReport(string PortalId, KeyCheckStatus Status, string Reason);
 
-// Исход живого пинга; реализуют адаптеры (WP-P1+): per_page=1 и т.п.
-// GeoBlocked=true для 403 с «region restricted» (§2.9).
+// Исход живого пинга; формируют адаптеры (канареечный минимальный запрос:
+// per_page=1 и т.п.).
+// GeoBlocked=true для 403 с «region restricted».
 public sealed record KeyPingOutcome(bool Succeeded, bool GeoBlocked = false, string? Detail = null);
 
 // STATE: сервис без мутируемого состояния — потокобезопасен.
@@ -42,7 +43,7 @@ public sealed class KeysCheckService : IKeysCheckService
     private readonly Func<PortalDescriptor, CancellationToken, Task<KeyPingOutcome>>? _ping;
 
     // ping — необязательный seam: живые пробы появятся вместе с адаптерами
-    // (WP-P1+); до того ключевые порталы честно получают PingNotConfigured.
+    // (+); до того ключевые порталы честно получают PingNotConfigured.
     public KeysCheckService(
         PortalRegistry registry,
         ILocalSecrets secrets,
@@ -88,7 +89,7 @@ public sealed class KeysCheckService : IKeysCheckService
             return new KeyCheckReport(
                 descriptor.Id,
                 KeyCheckStatus.PingNotConfigured,
-                "ключ найден, живой пинг не настроен — появится вместе с адаптером портала (WP-P1+)");
+                "ключ найден, живой пинг не настроен — появится вместе с адаптером портала");
         }
 
         KeyPingOutcome outcome;
@@ -102,7 +103,7 @@ public sealed class KeysCheckService : IKeysCheckService
         }
         catch (Exception e)
         {
-            // §2.9: пинг мёртв = вне цепи С ПРИЧИНОЙ, не краш.
+            // пинг мёртв = вне цепи С ПРИЧИНОЙ, не краш.
             outcome = new KeyPingOutcome(Succeeded: false, Detail: e.Message);
         }
 

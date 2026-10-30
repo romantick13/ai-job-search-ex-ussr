@@ -5,10 +5,10 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: SettingsViewModel (WP-U1) — модальное окно настроек: ключи из
+// FLOW: SettingsViewModel — модальное окно настроек: ключи из
 // PeekAiKey, запись через UpdateAiKey (local.json), папка откликов в
 // SettingsKV, CloseRequested для окна.
-// LIFECYCLE: temp-каталог конфига и temp-база на каждый тест (RFC-004 §2.3).
+// LIFECYCLE: temp-каталог конфига и temp-база на каждый тест.
 public class SettingsViewModelTests : IDisposable
 {
     private readonly string _dir = LogServiceTests.TempLogDir();
@@ -27,17 +27,16 @@ public class SettingsViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Load_FillsThreeProviderRows_EmbeddingsDefaults_AndDefaultOutbox()
+    public void Load_FillsProviderRows_AndDefaultOutbox()
     {
         var log = new LogService(_dir, echoToConsole: false);
         var vm = Make(log, out _, out _);
 
+        // OpenRouter/OrcaRouter вернулись в цепь — пять встроенных строк.
         Assert.Equal(
-            new[] { "Llm7", "ModelScope", "SiliconFlow" },
+            new[] { "Llm7", "ModelScope", "SiliconFlow", "OpenRouter", "OrcaRouter" },
             vm.Rows.Select(r => r.ProviderId));
-        // WP-U2: эмбеддер — из шаблона долились дефолты Ollama.
-        Assert.Equal(Services.Ai.LocalEmbeddingService.DefaultBaseUrl, vm.EmbeddingsBaseUrl);
-        Assert.Equal(Services.Ai.LocalEmbeddingService.DefaultModel, vm.EmbeddingsModel);
+        // r21: emb-строки окна вырезаны вместе с векторизацией.
         Assert.Equal(ApplicationStore.DefaultOutboxDir, vm.OutboxPath);
     }
 
@@ -47,24 +46,19 @@ public class SettingsViewModelTests : IDisposable
         var log = new LogService(_dir, echoToConsole: false);
         var vm = Make(log, out var config, out _);
         config.UpdateAiKey("ModelScope", "ms_key_loaded");
-        config.UpdateEmbeddings("http://127.0.0.1:8080/v1", "emb-model-loaded");
 
         var vm2 = new SettingsViewModel(config, new ApplicationStore(
             Path.Combine(_dir, "test.db"), log), log);
 
         Assert.Equal("ms_key_loaded", vm2.Rows.Single(r => r.ProviderId == "ModelScope").ApiKey);
-        Assert.Equal("http://127.0.0.1:8080/v1", vm2.EmbeddingsBaseUrl);
-        Assert.Equal("emb-model-loaded", vm2.EmbeddingsModel);
     }
 
     [Fact]
-    public void Save_WritesKeysEmbeddingsAndOutbox_FiresCloseRequested()
+    public void Save_WritesKeysAndOutbox_FiresCloseRequested()
     {
         var log = new LogService(_dir, echoToConsole: false);
         var vm = Make(log, out var config, out var store);
         vm.Rows.Single(r => r.ProviderId == "ModelScope").ApiKey = "ms_key_saved_0001";
-        vm.EmbeddingsBaseUrl = "http://127.0.0.1:1234/v1";
-        vm.EmbeddingsModel = "emb-model-saved";
         vm.OutboxPath = @"C:\Отклики";
 
         var closed = false;
@@ -74,10 +68,8 @@ public class SettingsViewModelTests : IDisposable
         Assert.True(closed);
         var reloaded = ConfigService.LoadOrCreate(log, baseDirOverride: _dir);
         Assert.Equal("ms_key_saved_0001", reloaded.PeekAiKey("ModelScope"));
-        var (baseUrl, model) = reloaded.PeekEmbeddings();
-        Assert.Equal("http://127.0.0.1:1234/v1", baseUrl);
-        Assert.Equal("emb-model-saved", model);
         Assert.Equal(@"C:\Отклики", store.GetSetting("outbox.path"));
+        // r21: emb-поля окна настроек вырезаны вместе с векторизацией.
     }
 
     [Fact]
@@ -95,18 +87,24 @@ public class SettingsViewModelTests : IDisposable
     [Fact]
     public void Done_FiresCloseRequested_WithoutWriting()
     {
-        var log = new LogService(_dir, echoToConsole: false);
-        var vm = Make(log, out var config, out _);
-        vm.Rows.Single(r => r.ProviderId == "Llm7").ApiKey = "не_сохранять";
+        // Урок: ResolveAiKey читает AIJOB_LLM7_API_KEY — чужое окно
+        // ConfigServiceTests (параллельный класс) давало env-значение. Гвард
+        // гасит переменную на время теста.
+        using (TestEnvGuard.Scope("AIJOB_LLM7_API_KEY"))
+        {
+            var log = new LogService(_dir, echoToConsole: false);
+            var vm = Make(log, out var config, out _);
+            vm.Rows.Single(r => r.ProviderId == "Llm7").ApiKey = "не_сохранять";
 
-        var closed = false;
-        vm.CloseRequested += () => closed = true;
-        vm.DoneCommand.Execute(null);
+            var closed = false;
+            vm.CloseRequested += () => closed = true;
+            vm.DoneCommand.Execute(null);
 
-        Assert.True(closed);
-        // «Закрыть без сохранения»: ключ не записан (в шаблоне он пуст — "") и
-        // в файле не появился; лестница env -> local.json не находит значения.
-        Assert.Equal("", config.PeekAiKey("Llm7"));
-        Assert.Null(config.ResolveAiKey("Llm7", "AIJOB_LLM7_API_KEY").Value);
+            Assert.True(closed);
+            // «Закрыть без сохранения»: ключ не записан (в шаблоне он пуст — "") и
+            // в файле не появился; лестница env -> local.json не находит значения.
+            Assert.Equal("", config.PeekAiKey("Llm7"));
+            Assert.Null(config.ResolveAiKey("Llm7", "AIJOB_LLM7_API_KEY").Value);
+        }
     }
 }

@@ -4,8 +4,8 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// WP-CONFIG (RFC-004 §2.5): security-гард. RFC планирует CI-джобу на каждый
-// PR; CI в проекте ещё нет — пока гард живёт xUnit-тестом: сканирует файлы
+// Security-гард: CI-джобы в проекте ещё нет — пока гард живёт xUnit-тестом:
+// сканирует файлы
 // репо на ключеобразные паттерны, находка = красный прогон до коммита.
 // Маска находки — только края совпадения (секреты не в логи, PRIVACY.md).
 public class RepoSecretsGuardTests
@@ -42,24 +42,24 @@ public class RepoSecretsGuardTests
         }
 
         Assert.True(hits.Count == 0,
-            "ключеобразные строки в репо (RFC-004 §2.5) — убери в local.json/env:\n" +
+            "ключеобразные строки в репо — убери в local.json/env:\n" +
             string.Join("\n", hits));
     }
 
-    // Корень репо: от бинарей тестов вверх до каталога с DECISIONS.md + src/.
+    // Корень репо: от бинарей тестов вверх до каталога с маркером репо и src/.
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         for (var i = 0; i < 10 && dir is not null; i++, dir = dir.Parent)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "DECISIONS.md")) &&
+            if (File.Exists(Path.Combine(dir.FullName, "src/ai-job-search-by.sln")) &&
                 Directory.Exists(Path.Combine(dir.FullName, "src")))
             {
                 return dir.FullName;
             }
         }
         throw new InvalidOperationException(
-            $"корень репо не найден вверх от {AppContext.BaseDirectory} (нет DECISIONS.md + src)");
+            $"корень репо не найден вверх от {AppContext.BaseDirectory} (нет src/ai-job-search-by.sln)");
     }
 
     private static IEnumerable<string> EnumerateScannableFiles(string root)

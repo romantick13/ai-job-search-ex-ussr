@@ -3,25 +3,30 @@ using System;
 namespace AiJobSearchBy.Services.Ai;
 
 // ============================================================================
-// [НАШЕ] Общие типы ИИ-цепи. Основание: решение владельца 2026-10-21 —
-// добавить LLM7 третьим провайдером; роутинг стадий по критике Мистраля.
+// Общие типы ИИ-цепи: стадии, запрос/ответ, исключение-сигнал для фолбэка.
 // ============================================================================
 
-/// <summary>Стадии отклика. Роутинг — TaskRoutingPolicy.</summary>
+// / <summary>Стадии отклика. Роутинг — TaskRoutingPolicy.</summary>
 // FLOW: типы ИИ-цепи -> TaskRoutingPolicy -> IAiChatProvider (llm7; далее цепь OpenAI-совместимых)
 public enum AiTaskKind
 {
-    /// <summary>Оценка соответствия — ЛОКАЛЬНЫЙ скоринг, ИИ не тратится (критика Мистраля).</summary>
+    // / <summary>Оценка соответствия — ЛОКАЛЬНЫЙ скоринг, ИИ не тратится.</summary>
     MatchAssessment,
 
-    /// <summary>Адаптация резюме — ядро продукта, лучший доступный провайдер.</summary>
+    // / <summary>Адаптация резюме — ядро продукта, лучший доступный провайдер.</summary>
     ResumeAdaptation,
 
-    /// <summary>Сопроводительное письмо — дешёвые провайдеры первыми (llm7 turbo).</summary>
-    CoverLetter
+    // / <summary>Сопроводительное письмо — дешёвые провайдеры первыми (llm7 turbo).</summary>
+    CoverLetter,
+
+    // / <summary>
+    // / Расширение поискового запроса 1-2 смежными (ИИ называет родственные специальности). Один короткий
+    // / запрос за прогон, кэш в SettingsKV — повторные поиски ИИ не платят.
+    // / </summary>
+    QueryExpansion
 }
 
-/// <summary>Запрос на генерацию. OpenAI-совместимая семантика сообщений.</summary>
+// / <summary>Запрос на генерацию. OpenAI-совместимая семантика сообщений.</summary>
 // LIFECYCLE: создаётся на каждый запрос; STATE: иммутабельный record
 // THREAD: безопасен с любого потока — только неизменяемые данные
 public sealed record AiChatRequest(
@@ -30,13 +35,13 @@ public sealed record AiChatRequest(
     int MaxTokens,
     double Temperature = 0.4);
 
-/// <summary>Расход токенов (вход + выход считаются раздельно, лимитеры суммируют).</summary>
+// / <summary>Расход токенов (вход + выход считаются раздельно, лимитеры суммируют).</summary>
 public sealed record AiChatUsage(long PromptTokens, long CompletionTokens)
 {
     public long TotalTokens => PromptTokens + CompletionTokens;
 }
 
-/// <summary>Успешный ответ провайдера с фактом расхода и длительностью.</summary>
+// / <summary>Успешный ответ провайдера с фактом расхода и длительностью.</summary>
 public sealed record AiChatResult(
     string Content,
     string Model,
@@ -44,10 +49,10 @@ public sealed record AiChatResult(
     string ProviderName,
     TimeSpan Duration);
 
-/// <summary>
-/// [НАШЕ] Провайдер занят или исчерпал бюджет — НЕ сбой, а сигнал цепи
-/// перейти к следующему. Причина всегда попадает в протокол (НИ-1/НИ-2).
-/// </summary>
+// / <summary>
+// / Провайдер занят или исчерпал бюджет — НЕ сбой, а сигнал цепи
+// / перейти к следующему. Причина всегда попадает в протокол.
+// / </summary>
 // STATE: исключение-сигнал «занят/без бюджета» для фолбэка цепи — не сбой, на выброс
 public sealed class AiProviderBusyException : Exception
 {

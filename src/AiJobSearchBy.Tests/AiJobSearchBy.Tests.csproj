@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- WP-0: юнит-тесты каркаса (xUnit 2.9.2, RFC-001 §2). Только модели —
-       без UI-инстанцирования; UI-гейты придут с WP-U. -->
+  <!-- Юнит-тесты (xUnit 2.9.2). Только модели — без UI-инстанцирования. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

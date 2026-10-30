@@ -1,299 +1,584 @@
 # architecture.md — каноническая архитектура ai-job-search-by
-Статус: канонический документ | Дата: 2026-10-18 | Владелец: ThreeI
-Основания: DECISIONS.md (RFC-001…007), реестр порталов 2026-10-17, реестр OrcaRouter 2026-10-17.
-Приоритет документов: architecture.md → PLAN.md → README.md.
+
+Статус: канонический документ | Дата ревизии: 2026-10-30 | Поддержка: ThreeI
+Основания: реестр порталов config/registry.json (2026-10-29), живые прогоны
+r15–r21. Приоритет документов: architecture.md → README.md → профильные
+доки (docs/).
 
 ## 1. Каноническое решение
-ai-job-search-by — публичный опенсорсный инструмент поиска IT-работы для
-Беларуси: адаптация github.com/MadsLorentzen/ai-job-search (MIT) БЕЗ Claude Code
-(официально недоступен в РБ) и БЕЗ зоопарка рантаймов. Харнес = собственный
-фазовый пайплайн на C#; тексты промптов — свои (WP-A); upstream-ассеты
-промптов не переносятся (решение владельца 2026-10-20).
+
+ai-job-search-by — опенсорсный **локальный** инструмент поиска работы
+(основной сценарий — Беларусь, Россия, Казахстан, Узбекистан — четыре зеркала
+группы hh; второй — международная удалёнка): адаптация
+github.com/MadsLorentzen/ai-job-search (MIT) БЕЗ Claude Code (официально
+недоступен в РБ) и БЕЗ зоопарка рантаймов. Харнес = собственный пайплайн
+на C#; тексты промптов — свои; upstream-ассеты промптов не переносятся.
 
 Стек (RFC-001): .NET 10 (net10.0, Nullable enable, WinExe); Avalonia 12.1.1 +
 Fluent, compiled bindings (x:DataType); CommunityToolkit.Mvvm 8.4.2;
 SQLite + Microsoft.Data.Sqlite 10.0.10 + Dapper 2.1.79 (без EF);
 Microsoft.Extensions.DependencyInjection 10.0.10; Markdig 1.3.2;
-QuestPDF 2026.8.0; DocumentFormat.OpenXml 3.2.0; UglyToad.PdfPig (Apache-2.0,
-версия пинится на WP-E); xunit 2.9.2 (тесты).
+QuestPDF 2026.8.0; DocumentFormat.OpenXml 3.2.0; UglyToad.PdfPig
+(Apache-2.0); xunit 2.9.2 (тесты).
 
 Железные запреты (не пересматривать без нового RFC): Entity Framework;
-python.exe в runtime (python = только one-shot в tools/ с PYDOC-шапкой, UTF-8 без BOM);
-параллельные LLM-запросы; cloud-only без локального фолбэка; ключи в репозитории;
-TabControl (persistent-вкладки: Grid + IsVisible); ReactiveUI/Fody; LaTeX/Typst в v1;
-внешний агент-харнес (opencode и подобные).
+python.exe в runtime (python = только one-shot в tools/ с PYDOC-шапкой, UTF-8
+без BOM); параллельные LLM-запросы; cloud-only без локального фолбэка; ключи
+в репозитории; TabControl (persistent-вкладки: Grid + IsVisible);
+ReactiveUI/Fody; LaTeX/Typst; внешний агент-харнес.
 
 Правила кода с первого файла: граф-комментарии // FLOW / LIFECYCLE / STATE /
-THREAD; каждая фаза = один коммит phase-N с обновлёнными доками в том же коммите;
-код без обновлённой документации не коммитится.
+THREAD; «никаких тихих игноров» — каждый выход из ветки ошибки/пропуска
+проходит через LogError/LogWarn с причиной и решением.
 
 ## 2. Высокоуровневая схема
-┌────────────────────────────────────────────────────────┐
-│ Avalonia UI (persistent-вкладки Grid+IsVisible)         │
-│  Search | Vacancies(Rank) | Apply | Tracker | Settings  │
-│  Progress-панель (ETA) | DebugLog-окно                  │
-└──────────────────────────┬─────────────────────────────┘
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ Avalonia UI — окно-«рабочее место» (Grid+IsVisible-панели)  │
+│  Поиск | Вакансии (перебор) | Моё резюме | Адаптация |      │
+│  История откликов | Протокол | Карточки цепи ИИ | Settings  │
+└──────────────────────────┬─────────────────────────────────┘
                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Application Services                                    │
-│  ConfigService (слои, снапшот, quarantine)              │
-│  PortalRegistry + IPortalService (Api/Feed/Scrape/Gov)  │
-│  ScrapeOrchestrator (порядок, снапшот, отчёт порталов)  │
-│  DedupeHasher (композитный ключ, ДО нормализации)       │
-│  RankService (fit-скоринг против профиля)               │
-│  ApplyPipeline (фазы parse→eval→draft→reviewer→revise→  │
-│    export→ATS; checkpoint; breaker; repair)             │
-│  AtsChecker (PdfPig text-layer + детерминированные правила)│
-│  CascadeAiService + IAiProvider (6 провайдеров)         │
-│  LlmClient (одна попытка, типизированные ошибки)        │
-│  LlmProfileService (me/public, Revision в снапшот)      │
-│  EndpointGate (SemaphoreSlim(1)) | BionicPreflight      │
-│  IFormatExporter (Pdf/Docx/Html/Markdown)               │
-│  TrackerService (SQLite) | KeysCheckService             │
-│  ProfileService/Onboarding (только data/, gitignore)    │
-│  ProgressTracker (ETA) | LogService + FileLog           │
-└──────────────────────────┬─────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│ Application Services                                        │
+│  ConfigService (слои env→local.json, quarantine, снапшот)   │
+│  PortalRegistry + IPortalService                            │
+│    (ApiPortalBase | FeedPortalBase | ScrapePortalBase |     │
+│     GovernmentPortalBase | BrowserEmulationPortalBase)      │
+│  Поисковый цикл — MainViewModel (последовательно по цепи)   │
+│  GeoMatcher (страны/города/удалёнка) + RelevanceFilter      │
+│  DedupeHasher (канонический URL + TitleKey)                 │
+│  ResumeAdaptationService (язык вакансии, промпт)            │
+│  TaskRoutingPolicy + IAiChatProvider ×6 (цепь с перебором сбоев) │
+│  LocalMatchScorer (0 запросов на оценку соответствия)       │
+│  RelatedQueriesService (смежные запросы, кэш в базе)        │
+│  (r21: векторизация вырезана — векторы ничего не потребляли)│
+│  PdfExportService (QuestPDF) | MdToDocx | DocxTextEdit |    │
+│  PdfOverlayService | PdfIndexerService (PdfPig, текст)      │
+│  ApplicationStore (SQLite+Dapper, FK, мягкие удаления)      │
+│  KeysCheckService | ChainProbe | StartupProbeHub            │
+│  LogService (окно + диск) | LegacyPathMigrator              │
+└──────────────────────────┬─────────────────────────────────┘
                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Storage                                                  │
-│  data/applications.db (SQLite, идемпотентные миграции)   │
-│  config/app.json (tracked, без секретов)                 │
-│  config/local.json (gitignore: ключи, счётчики квот)     │
-│  rate-limit.json (кулдауны 429, рядом с exe)             │
-│  data/profile/, data/documents/ (личные, gitignore)      │
-└──────────────────────────┬─────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│ Storage (профиль пользователя C:\Users\<юзер>\)             │
+│  ai-job-search-by\state\  local.json (ключи), llm7-budget,  │
+│                           modelscope-requests, sticky,      │
+│                           keywords.json, session-checks.log │
+│  ai-job-search-by\data\   ai-job-search-by.db (SQLite)      │
+│  ai-job-search-by\resume\ resume.db + профили               │
+│  ai-job-search-by\logs\   протокол по дням                  │
+│  <exe>\resume\ (PDF откликов)  <exe>\exports\ (CSV)         │
+└──────────────────────────┬─────────────────────────────────┘
                            ▼
-┌────────────────────────────────────────────────────────┐
-│ External Systems                                         │
-│  Порталы: official_api | feed | scrape (robots/polite)   │
-│  AI: Bionic(1) OpenRouter(10) OrcaRouter(20)             │
-│      OmniRoute(30) CherryStudio(40) GLM(50, breaker)     │
-└────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│ External Systems                                             │
+│  Порталы: 4 зеркала hh (браузерная эмуляция выдачи) +       │
+│           6 международных фидов (API/RSS без ключей)        │
+│  ИИ-цепь: modelscope → llm7 → siliconflow → openrouter →    │
+│           orcarouter → lm-studio (+ кастомные звенья)        │
+└────────────────────────────────────────────────────────────┘
+```
 
 ## 3. Контракты слоёв
 
 ### 3.1 Конфиг (RFC-004)
-Слои: код-дефолты ← config/app.json ← config/local.json (gitignore).
-Snapshot immutable на чтение из любого потока; UpdateAsync(updater) — RMW поверх
-latest под SemaphoreSlim, только dirty-поля; Changed не стреляет на LoadAsync;
-битый json = quarantine + fallback на дефолты (не крах). Ключеобразные значения
-(sk-*, Bearer, app_key, client_secret) в app.json = ConfigValidationException до
-записи. Снапшот прогона + ConfigSnapshotHash + ProfileRevision → в ScrapeRuns/
-ApplyRuns для воспроизводимости.
 
-### 3.2 AI-слой (RFC-002)
-ILlmClient: CompleteAsync(request, options) — ОДНА
-попытка, без ретраев; типизированные ошибки: LlmUnavailableException(RetryAfter,
-StatusCode, BodySnapshot), LlmAuthenticationException, LlmEndpointMismatchException,
-LlmRequestRejectedException, LlmResponseException; классификация: 408/429/5xx →
-Unavailable, 400/413/422 → Reject, 401/403 → Auth, 404 → EndpointMismatch, прочие
-4xx консервативно Reject; caller-cancel → OperationCanceled. Retry-цикл с backoff +
-jitter — собственность ApplyPipeline/ScrapeOrchestrator; Retry-After сервера wins.
+Лестница ключей: переменные окружения (`AIJOB_*_API_KEY`) →
+`state\local.json` (gitignore) → дефолты кода. Слои настроек: код-дефолты ←
+конфиг в базе (SettingsKV) ← local.json. Snapshot immutable на чтение;
+UpdateAsync(updater) под SemaphoreSlim, только dirty-поля; битый json =
+quarantine + фолбэк на дефолты (не крах). Ключеобразные значения в
+нетрекнутых файлах не попадают в логи и репозиторий (гард-тесты
+RepoSecretsGuardTests / TestEnvGuard). Одноразовый перенос со старого адреса
+`%APPDATA%\ai-job-search-by` — LegacyPathMigrator (решение владельца
+2026-10-25: один рабочий каталог в профиле).
 
-IAiProvider: Id, DisplayName, DefaultPriority, IsAvailableAsync,
-CanHandle(estimatedTokens), CompleteAsync(system, user, ct) → AiAttemptResult.
-CascadeAiService: цепь упорядочена по DefaultPriority (меньше = раньше); липкость
-на уровне ПРОВАЙДЕРА (успешный первым в следующем чанке); исключение провайдера =
-отказ, не крах; TextQuality.LooksLikeGarbage/LooksLikeThinking = провал и переход
-дальше; липкость снимается с CoT-провайдера.
+### 3.2 AI-слой
 
-Провайдеры (приоритеты и факты — реестр 2026-10-17):
-| Приоритет | Провайдер | Факты/лимиты |
-|---|---|---|
-| 1  | BionicProvider | localhost:1234; безлимитно, медленно; субчанки ≤15000 (иначе 400 Engine protocol failed); StripThinkingBlock; по умолчанию выкл — галочка в настройках (рев. 7) |
-| 10 | OpenRouterProvider | 50 req/day; free-фильтр pricing.prompt=="0" && pricing.completion=="0" (СТРОКИ); openrouter/auto на free = всегда 402 (запрещён); скоринг семейств + кулдауны 429 персист (адаптив 5→60 мин); липкость по модели внутри; ModelBecamePaid → сброс липкости |
-| 20 | OrcaRouterProvider | api.orcarouter.ai/v1, ключ sk-orca-; 50 req/day free (после $20 платежей воркспейса → 800/day); free-пул ротируется; нужен GitHub с историей; Lite (MIT) = self-host альтернатива |
-| 30 | OmniRouteProvider | локальный роутер владельца; мало free-моделей; вкл если настроен |
-| 40 | CherryStudioProvider | локальный; free: GLM 4.5, GLM 4.6; вкл если настроен |
-| 50 | GlmProvider | Z.ai; ключ есть, баланса НЕТ (402/1113) → circuit breaker 10 мин держит вне цепи; не предлагать «просто GLM» |
+**Контракт.** `IAiChatProvider`: Name, QualityRank, CompleteAsync(request, ct)
+→ AiChatResult (Content + ProviderName + Model + Usage + Duration). Провайдер
+честно не глотает сбои: лимит/нет ключа → `AiProviderBusyException`; HTTP
+401/403/500, таймаут, сеть — исключение наружу со строкой «решение: исключение
+наружу — цепь решает».
 
-LlmProfileService: профили "me" (bionic-first) и "public" (cloud-only, без
-LocalProvider); ResolveActive: active → default → первый валидный;
-Revision = SHA256(name+baseUrl) БЕЗ ключа → в снапшот прогона.
-EndpointGate: SemaphoreSlim(1) — единственная точка HTTP к LLM-endpoint
-(конкурентность убивает free-тарифы и VRAM).
-BionicPreflight: ON-DEMAND (ПОЛИНГ ЗАПРЕЩЁН): lms ps = единственный источник
-истины о резидентных (парсинг только после шапки IDENTIFIER, CleanCli от
-ANSI/спиннеров); lms load --yes = синхронный барьер готовности; защита от
-задвоения моделей в VRAM. Кнопка «Тест цепочки» = on-demand префлайт всех
-провайдеров с таблицей вердиктов.
+**Маршрутизация.** `TaskRoutingPolicy.RunAsync(kind, request, ct)`:
+* OrderFor(kind) — порядок цепи для стадии (MatchAssessment — осознанный
+  отказ → LocalMatchScorer, 0 запросов; ResumeAdaptation/QueryExpansion — по
+  QualityRank; CoverLetter — по дешевизне, маршрут готов, генерация — этап
+  в плане);
+* перебор цепи: ЛЮБОЙ провал провайдера → одна строка LogWarn
+  (причина + кто следующий) → следующий провайдер; раньше ловился только
+  AiProviderBusyException, и HttpRequestException убивал стадию целиком.
+  Наверх идёт только OperationCanceledException («Отмена» юзера);
+* исчерпание всех → LogError «провайдеры исчерпаны» + null (стадия честно
+  не сделана).
 
-### 3.3 Порталы (RFC-003, реестр 2026-10-17)
-IPortalService: Id, DisplayName, SourceClass (commercial|government|aggregator),
-Access (official_api|feed|scrape), Auth (none|public_key|personal_key|oauth),
-DefaultPriority, ApplySupported: bool, ApplyWarning: string?,
-SearchAsync(query, ct) / DetailAsync(idOrUrl, ct) → нормализованный JobPosting.
-Базовые классы: ApiPortalBase (JSON), FeedPortalBase (RSS/Atom),
-ScrapePortalBase (HTML + polite-crawl: паузы между запросами,
-рандомизация задержек, robots.txt, уважение X-RateLimit-Remaining/Retry-After,
-инкрементальный since, лимит страниц за прогон; breaker после N подряд падений
-парсинга + golden-фикстуры разметки в тестах), GovernmentPortalBase (строгий
-polite-crawl + дисклеймер «сверять с первоисточником»).
-PortalRegistry: порядок = массив конфига Portals[] (порядок = приоритет), чекбокс
-Enabled; порталы вне массива дописываются в хвост по DefaultPriority. Снапшот
-порядка фиксируется НА СТАРТЕ прогона; правки конфига посреди прогона не
-перетасовывают живую цепочку.
-ScrapeOrchestrator: последовательно по приоритету (параллельность запрещена);
-MaxPortalsPerRun (0 = без лимита); per-portal таймаут 60 с дефолт + экспоненциальный
-backoff на 429/503 + персист кулдауна в rate-limit.json; отчёт прогона по каждому
-порталу: ok | no_key | refused | breaker | parse_fail | disabled (отказ портала ≠
-крах прогона).
-DedupeHasher: SHA256 от композитного ключа portal_id + external_id + canonical_url,
-ДО нормализации текста (belmeta-агрегатор оборачивает вакансии своей обёрткой).
-KeysCheckService (on-demand): auth=none → зелёный; ключевой → наличие в local.json
-+ живой минимальный пинг (per_page=1); нет ключа/пинг мёртв = портал вне цепи С
-ПРИЧИНОЙ в отчёте, не краш; старт без ключей = 12 enabled auth=none работают сразу.
-Поиск ≠ подача: ApplySupported/ApplyWarning в манифесте; hh: ApplySupported=false,
-ApplyWarning «ИИ-агент скрининга отсеивает ~100% кандидатур»; UI Apply требует
-подтверждения на подачу в помеченные площадки.
+**Провайдеры** (регистрация CompositionRoot; QualityRank = порядок адаптации):
 
-Дефолтная цепочка (реестр 2026-10-17):
-| Приоритет | id | access/auth | enabled |
+| Rank | id | Ключ | Особенности |
 |---|---|---|---|
-| 10 | rabota_by | official_api / none (поиск) | вкл |
-| 9  | hh | official_api / none (поиск); apply off | вкл |
-| 8  | hirify, jobs_dev_by, belmeta, praca_by | scrape / none | вкл |
-| 8  | remoteok, remotive, himalayas | official_api / none | вкл |
-| 7  | jobicy, wwr(feed), nodesk(feed) | official_api|feed / none | вкл |
-| 6  | hn_who_is_hiring (Algolia+парсер треда), adzuna (personal_key) | вкл |
-| 5  | yc_work_at_a_startup | scrape / none | выкл |
-| 4  | web3_jobs | official_api / personal_key | выкл |
-| 3  | jooble (lifetime 500/ключ + счётчик «осталось N из 500» в local.json), careerjet, второй эшелон РБ (rdw/rab/joblab/rework/belrabota/rabota360) | выкл |
-| 1  | linkedin (scrape/oauth, партнёрский API), indeed, glassdoor, monster, otta, dice | exclude |
-| —  | wellfound, flexjobs, hiring_cafe, arc_dev, ux_remote_talent, kufar, vakantno/riv/trudbox/gorodrabot/mnogo-raboty/trud_com | exclude/парковка (portals-graveyard.md) |
-| WP-P7 | gsz_gov_by, minsk_komtrud | government | выкл |
-Гейт перед кодом каждого портал-WP: чек-лист из 5 пунктов (живость+свежесть;
-robots/sitemap/api/rss/json → access; Cloudflare/капча/login-wall → antiBot;
-дубли belmeta/hh → dedupePriority; юридическая допустимость → legalAccess
-allowed|restricted|forbidden). Код без заполненной карточки не коммитится.
+| 2 | modelscope | обязателен | 2000 запр/сутки, ≤200/модель; single-request concurrency; disableThinking (гибридные Qwen → 504 Tengine); регистр расхода modelscope-requests.json |
+| 3 | llm7 | не нужен (аноним) | free 100 000 ток/сутки (резали 1M→100K — капа консервативна); локальный регистр llm7-budget.json; ротация каталога turbo ловится пробой GET models |
+| 4 | siliconflow | обязателен | постоянно бесплатные модели; disableThinking; суточные RPD не публикуются — [cost] собирает фактически |
+| 5 | openrouter | обязателен | free-каталог: список бесплатных → наилучшая → отказ = следующая → удачная («липучесть», openrouter-sticky.json); ModelBecamePaid → сброс липкости; GeoBlocked → пометка и исключение |
+| 6 | orcarouter | обязателен | модель конфига (deepseek-v4.1-flash-free), без free-каталога; ступени 50→800 знает провайдер (429 = фолбэк); непубликуемый лимит промпта — вход сокращается заранее |
+| 7 | lm-studio | не нужен | декоратор LmStudioBootstrappingProvider над OpenAiCompatibleProvider (localhost:1234): daemon up → ps → load → chat-ping; чужие модели не выгружает |
+| — | ollama-local | не нужен | вне дефолта (у владельца нет); включается ключом/env |
+| — | Chain.Custom | от пользователя | кастомные OpenAI-совместимые звенья из local.json — наравне со встроенными |
 
-### 3.4 Пайплайны вакансий
-RankService: fit-скоринг вакансии против профиля (prompts/ru/04-job-evaluation +
-критерии РБ: ТК РБ, BYN/USD, релокация); флаг UsePortalRatingInRank дефолт ВЫКЛ
-(рейтинг портала = информационная колонка UI).
-ApplyPipeline (фазы, паттерн TranslationPipeline): parse posting → eval fit →
-draft CV (Markdown) → draft cover letter → reviewer (второй LLM-вызов + company
-research, промпт из agents/gemini-research-expert.md как референс) → revise →
-export → ATS-check → present. Checkpoint инкрементальный (resume после 429-шторма);
-breaker на 3 подряд отказа; repair-цикл = смена промпта (владелец ретраев =
-пайплайн). ОДИН apply-прогон за раз, строго последовательно.
-AtsChecker: PdfPig читает число страниц и text-слой; детерминированные правила
-(паттерн QAService): контакты литерально в text-слое; покрытие ключей вакансии
-против профиля (keyword stuffing запрещён, дыры остаются видимыми); числа/даты
-консистентны с профилем (жадные regex-классы заканчивать цифрой); TextQuality-
-маркеры мусора/thinking. CV ≠ 2 стр или письмо ≠ 1 стр → детерминированные шаги
-ужатия (кегль → интервалы → перенос блока), максимум 2 итерации; не влезло →
-warning с фактом «N страниц», не молчаливый выход.
+**Диагностика.** `ChainProbe`: GET {base}/models (без сжигания
+генерационных токенов), вердикты ламп; StartupProbeHub красит лампы после
+стартовой пробы (поллинга нет — on-demand, «автопроба нужна, поиск не
+нужен» — решение владельца). `KeysCheckService` — on-demand проверка ключей.
+`ResponseCostCounter` — строки [cost] в протоколе. «Проверить всех» —
+ручная перепроверка с таблицей вердиктов; сессионный лог session-checks.log.
 
-### 3.5 Экспорт (RFC-005)
-IFormatExporter: Format, Extension, ExportAsync(markdown, outputPath,
-ct). Реализации: PdfExporter (Markdig AST → QuestPDF), DocxExporter (OpenXml),
-HtmlExporter (Markdig), MarkdownExporter. ExportStyles-константы; QuestPDF license
-пишется идемпотентно (Community-лицензия — строка в README и NOTICE.md). Шаблоны
-CV/письма = Markdown-шаблоны prompts/templates/ (структура секций и tailoring-
-правила портированы чтением upstream cv/cover_letters как РЕФЕРЕНСА). Опциональные
-OFL-шрифты (Lato/Raleway) — только с Google Fonts вместе с OFL.txt.
+### 3.3 Порталы
 
-### 3.6 Трекер и онбординг
-TrackerService: SQLite-статусы откликов (/outcome-аналог), follow-up-даты,
-заметки (CSV-safe). Onboarding (/setup-аналог): пишет ТОЛЬКО в data/profile/ и
-config/local.json; xUnit-гард белого списка путей записи (порт идеи upstream
-test_onboarding_privacy); security-гард сканирует staged-файлы на ключеобразные
-паттерны (порт идеи test_security_guards).
+**Контракт.** `IPortalService`: Descriptor (манифест-карточка), SearchAsync,
+DetailAsync, HealthCheckAsync. Истина по статусам — config/registry.json
+(schema v3: access, tos_status + tos_evidence с датой, default_enabled,
+adapter_implemented); генератор `tools/gen_readme_counters.py` валидирует
+реестр и обновляет таблицы README/docs (allowed без evidence не проходит).
+
+**Базовые классы:** ApiPortalBase (JSON), FeedPortalBase (RSS/Atom),
+ScrapePortalBase (HTML + вежливый цикл + лимиты страниц + брейкер
+парсинга), GovernmentPortalBase (строгий polite-crawl),
+**BrowserEmulationPortalBase** (заголовки браузера, Referer, ретрай
+403/429/503 один раз, пайплайн обхода ниже).
+
+**Цепочка по умолчанию (r21, решение владельца):** ПУСТА — все чекбоксы
+порталов по умолчанию выключены, юзер сам собирает свою цепочку галочками
+(выбор переживает перезапуск: sites.checked.v2 в SettingsKV; в цепь по
+умолчанию из «старого дефолта 10 порталов» больше никто не входит).
+Порядок списка чекбоксов — PortalRegistry по приоритету: hh-зеркала (5) →
+Core (6–8: RemoteOK, Remotive, Himalayas, Jobicy, WeWorkRemotely, NoDesk).
+Обход строго
+последовательный, в цикле MainViewModel (отказ одного портала ≠ крах
+прогона — причина в протоколе, остальные дорабатывают).
+
+praca.by — вырезан в r21: адаптер на день подключался решением владельца
+и вырезан решением владельца в тот же день (сайт оценён владельцем как
+самый слабый для IT-поиска в Беларуси); запреты их соглашений в силе —
+portals-graveyard.md (раздел praca.by), реестр — `forbidden`.
+
+**Зеркала hh (HhGroupPortal):**
+1. URL первой страницы: `{хост}/search/vacancy?text=…&area={код страны}` —
+   hh.ru/113, rabota.by/16 (hh.by 302 → rabota.by — одно зеркало),
+   hh.kz/40, hh.uz/97 (коды — справочник api.hh.ru/areas/countries).
+2. План страниц: счётчик `h1 «Найдено N вакансий»` (regex `Найден\w{0,2}`
+   + число с пробелами/NBSP) + старший `data-qa="pager-page"` (0-базный);
+   URL страниц — подмена `page=N` в первом URL (search_session_id не нужен).
+3. Кэш HTML всех страниц прогона → разбор карточек из кэша. Каждая
+   следующая страница — НОВАЯ ВКЛАДКА с первой страницы (Referer = первая
+   страница) с рваной паузой 5–25 с: мгновенная скачка по страницам
+   приводит к щиту сайта — заглушка без карточек (воспроизведено
+   2026-10-28, страницы 5–8). Итог фазы открытия — отдельная строка
+   протокола. Одна плохая страница кэша не убивает обход (пропуск с warn).
+   Вкладки вакансий НЕ открываются (данных карточки листинга достаточно),
+   блок «Вам подойдут эти вакансии» не собирается.
+4. Карточка листинга отдаёт: название, работодателя, зарплату
+   (`span.typography-label-1-regular` с `<data value=…>`), опыт
+   (`data-qa="…-work-experience-…"`), выплаты (`…-compensation-frequency-…`),
+   адрес, «Можно удалённо». Карточка без зарплаты — норма.
+5. Дедуп на обходе: канонический URL + TitleKey «название + работодатель
+   до первой точки» (перепосты hh и филиалы «Компания. Отдел» — одна
+   строка; локация в ключ не входит). Каждая отсечка — строка протокола.
+6. Смена вёрстки → `ParseFailedException` (ни одной карточки = громкий
+   отказ, не молчаливая пустота); «Отмена» возвращает собранное.
+
+**Гео-фильтр.** `GeoMatcher.Match(posting, filter, remote,
+hideUnknown, allowed)`: чужая страна (не из разрешённых) прячется при любом
+режиме; локация авторитетнее текста описания; удалёнка/гибрид — только
+внутри разрешённых стран (дефолт Беларусь + Россия); города → страны через
+локальные словари (CountryTable, стемming падежей, фразы «санкт петербург»).
+Каждое скрытие — строка протокола с причиной. `RelevanceFilter` — порог слов
+запроса (скрытые — с причиной «нерелевантно»). `DetectRemote`: маркеры
+удалёнки → «удалёнка»; явное «в офисе» → «офис»; маркеров нет, но ЛОКАЦИЯ
+указана → «офис» (вакансия по месту — бейдж «?» с «гео не указано» не висит
+на строках с явным городом); Unknown остаётся только за строками вовсе без
+локации.
+
+**KeysCheckService:** auth=none → зелёный; ключевой → наличие ключа + живой
+минимальный пинг; нет ключа/пинг мёртв = вне цепи С ПРИЧИНОЙ. Поиск ≠
+подача: ApplySupported=false у hh («ИИ-агент скрининга отсеивает ~100%
+кандидатур»), автоматической подачи нет вообще (решение владельца).
+
+### 3.4 Стадии отклика (текущая реальность)
+
+* **Оценка соответствия** — `LocalMatchScorer` по ключевым словам резюме
+  (0 ИИ-запросов; ИИ-оценка осознанно отключена политикой бюджета — критика
+  Мистраля 2026-10-21).
+* **Адаптация резюме** — `ResumeAdaptationService.AdaptAsync`:
+  промпт из базы резюме (SettingsKV resume.text) + поля JobPosting
+  (описание обрезано до 6000 знаков — экономия дневных лимитов);
+  **язык адаптации = язык вакансии** (`DetectLanguage`: латиница > кириллица×3
+  → EN; кириллица побеждает при равенстве — латинские аббревиатуры C#/MS SQL
+  не переворачивают язык; вердикт — жёсткое правило и в системе, и в задаче);
+  системный промпт прямо запрещает выдумывать опыт (правда важнее подгонки).
+  Точные тексты обоих промптов и параметры запроса — §3.9.
+  Результат: текст в окно → PDF в папку откликов → EnsureVacancy →
+  ApplicationRecord status=adapted (r21: векторы не пишутся; никаких откатов частично сделанного:
+  файл ценен сам по себе). Журнал процессов: старт 'adapt' до вызова цепи,
+  финал done сразу после SaveApplication / failed — §3.8.
+  **Пустой content — не результат** (глух 2026-10-29: «адаптировано 15.4 с»,
+  а резюме пустое — модель унесла ответ в reasoning_content): провайдер
+  читает content строкой ИЛИ массивом частей, при пустом тексте — LogError
+  + `AiProviderBusyException` (цепь перебирает следующих); в VM — второй
+  рубеж: пустой результат НЕ создаёт ни PDF, ни записи истории, в окне —
+  причина и решение. Старые пустые записи в модалке истории показывают
+  «(текст не сохранён)», а не пустоту.
+* **Смежные запросы** — `RelatedQueriesService`: после основного обхода ИИ
+  называет 1–2 близких запроса, каждый — лёгкий preview-проход (первая
+  страница, SearchPreviewAsync); ответы кэшируются в базе (повтор — 0
+  токенов); ИИ недоступен — поиск идёт без смежных.
+* **Сопроводительное письмо** — маршрут в цепи готов (LetterOrder, llm7
+  первым), генерация в текущей сборке НЕ реализована — этап в плане.
+* **Многофазный ApplyPipeline (parse→eval→draft→reviewer→revise→…) и
+  AtsChecker — НЕ реализованы** (остались в плане RFC-002/005). Честная
+  маркировка возможностей — в README/PRIVACY: «ATS-совместимость не
+  проверяется; текстовый слой PDF извлекается PdfPig'ом для текстового
+  индекса».
+
+### 3.5 Экспорт и редактирование
+
+* `PdfExportService` — QuestPDF, A4, шрифт Segoe UI (кириллица из коробки
+  Windows 10+), имя файла «работодатель_дата», папка откликов `<exe>\resume\`
+  (ResolveOutbox: унаследованные пути из Документов переносит мигратор).
+* `MdToDocx` (OpenXml) — DOCX-копия профиля резюме; `DocxTextEditService` —
+  точечная правка текстовых нод готового DOCX без потери форматирования;
+  `PdfOverlayService` — «заплатка»: закрасить слово в чужом PDF и впечатать
+  замену (текстовый слой сохраняется).
+* `PdfIndexerService` — индексация PDF откликов: PdfPig извлекает текст
+  (локально), текст пишется в PdfDocuments; кнопка «⟳ PDF» переиндексирует
+  новые файлы. r21: векторизация вырезана (решение владельца — векторы
+  ничего не потребляли, функции «похожие отклики» не было; emb-шум в
+  протоколе на каждый отклик исчез); столбцы VectorJson/VectorModel в
+  схеме остались — пишутся пустыми, старые базы совместимы. LaTeX не используется; QuestPDF license пишется
+  идемпотентно (Community — отдельная лицензия зависимого компонента,
+  README «Юридическая сторона»).
+
+### 3.6 Хранение и трекер
+
+`ApplicationStore` (SQLite + Dapper, `ForeignKeys=true` в строке подключения
++ `PRAGMA foreign_keys=ON` при каждом Open — пул соединений Microsoft.Data.Sqlite
+сохраняет служебные настройки на физическом соединении, отравление пула
+ловится тест-регрессом). Мягкие удаления: крестик строки вакансии =
+снапшот строки в DismissedVacancies (не возвращается ни при перезапуске,
+ни при новых поисках — UpsertVacancies сверяется с имеющимися и удалёнными);
+вакансия с откликом удаляется мягко — запись Applications ОСТАЁТСЯ
+(связи FK мягкие, пересборка таблицы один раз при первом запуске
+новой сборки). Путь базы передаётся снаружи (`%USERPROFILE%\ai-job-search-by\data\`).
+Журнал процессов (Processes) — старт/финал долгих операций с подбором
+хвостов при старте: §3.8.
 
 ### 3.7 Прогресс и логи
-ProgressTracker: Start/Report/Complete/Reset, ETA экспоненциальное
-сглаживание, глобальная панель в MainWindow; опциональный IProgressTracker? в
-сервисах. LogService (UI ObservableCollection) + FileLog (logs/app.log), при старте
-подтягивает старые строки.
 
-## 4. Схема БД V1 (SQLite, идемпотентные миграции EnsureColumn/PRAGMA table_info)
+UI не блокируется; обновления через Dispatcher.UIThread; сеть/LLM — async;
+Task.Run для тяжёлых операций. `LogService`: окно (кольцо 300) + диск
+(`ai-job-search-by-ГГГГММДД.log`) — каждая строка и там, и там; LogWarn —
+осознанный skip с причиной; сбой диска — не тихий (stderr + счётчик).
+Протокол — главный инструмент отладки у владельца: «закрыл — открыл —
+пропало» разбирается шапкой базы («[база] путь: …; вакансий N, крестиков M»).
+
+### 3.8 Журнал процессов и «подбор хвостов» (r20)
+
+**Задача.** Вопрос владельца (r19): «если во время генерации упал интернет
+или комп, или приложение закрыли — оно поведёт себя идемпотентно?
+транзакционно — ровно 2 исхода: полный успех или откат?» Ответ
+реализацией: у каждого долгого процесса есть скользящий Id, записанный в
+базу на старте, и в ЛЮБОМ случае записанный финал — хвостов не остаётся.
+
+**Таблица Processes** (DDL — §4): Id (Guid, «скользящий» — новый на каждый
+запуск процесса), Kind (`search` | `adapt`), Detail (запрос поиска /
+«работодатель — вакансия»), Status, StartedAt, FinishedAt.
+
+**Жизненный цикл.** `StartProcess(kind, detail)` → строка 'running';
+`FinishProcess(id, status)` на финише (UPDATE только по 'running' —
+двойное закрытие не перетирает записанный исход). Финалы:
+* `done` — поиск завершил обход цепи; адаптация — запись Applications
+  создана (точка полного успеха — сразу после `SaveApplication`);
+* `failed` — честный провал: цепь не ответила (null), пустой content,
+  исключение вне портальных попыток;
+* `interrupted` — юзер нажал «Отмена» (token.IsCancellationRequested);
+* **обрыв приложения финала НЕ пишет вовсе** — строка остаётся 'running',
+  и её при следующем старте закрывает `SweepStaleProcesses()`: один UPDATE
+  в транзакции (сначала читаем, что закрываем, потом закрываем);
+  `MainViewModel.InitializeAsync` логирует каждый хвост строкой
+  `[хвост] …` — поиск: «всё собранное к моменту обрыва осталось в базе»,
+  адаптация: «в историю и PDF ничего не записано, можно адаптировать
+  заново»; идемпотентно — второй свип пуст.
+
+**Почему транзакционность «естественная», без откатов.** Адаптация коммитит
+в базу ОДНИМ `SaveApplication` в конце цепочки (PDF → EnsureVacancy →
+запись): до этого момента в базе и истории ничего нет — обрыв до
+записи означает чистое «ничего не случилось», повторное «Адаптировать»
+перезапускает с нуля (стоит 1–2 запроса). Краевой случай: обрыв ПОСЛЕ
+сохранения PDF, но до `SaveApplication` — файл остаётся на диске без
+строки истории; это осознанный размен («файл ценен сам по себе», откатов
+частично сделанного нет — решение r17). Поиск коммитит ПОРТАЛЬНО:
+`UpsertVacancies` после каждого портала — обрыв сохраняет всё собранное,
+повторный поиск продолжает без дублей (дедуп DedupeHash/URL + крестики
+юзера).
+
+**Почему нет автодокатки ИИ-запросов.** Докатывать адаптацию автоматически
+при старте нельзя: каждый запрос тратит дневные лимиты провайдеров, и
+автозапуск без ведома юзера недопустим (решение r20). Хвост закрывается
+статусом interrupted, протокол объясняет решение (один клик). Автодокатка
+поиска не нужна по определению: данные не терялись — они уже в базе.
+
+### 3.9 Промпты: что уходит модели (точные тексты, r20)
+
+**Адаптация резюме** — `ResumeAdaptationService.BuildPrompt`. Оба промпта
+(система и задача) составлены на русском; резюме и текст вакансии уходят
+на своих языках КАК ЕСТЬ; ответ модели — на языке вакансии (правило
+продублировано и в системе, и в задаче — модели любят отвечать языком
+резюме).
+
+Системный промпт (дословно):
+
+> Ты — карьерный консультант. Твоя задача: адаптировать резюме кандидата
+> под конкретную вакансию. Правила: (1) сохраняй факты и правду — не
+> выдумывай опыт, навыки и даты; (2) переупорядочивай и переформулировай
+> существующий опыт под требования вакансии; (3) используй ключевые слова
+> вакансии там, где они честно соответствуют опыту; (4) верни ТОЛЬКО текст
+> адаптированного резюме, без пояснений и markdown-разметки заголовков;
+> (5) язык ответа = язык вакансии: вакансия на английском — всё резюме на
+> английском, вакансия на русском — всё резюме на русском. Сейчас вакансия
+> требует ответ на {русском | английском} языке.
+
+Пользовательский промпт (структура; метки — на русском):
+
+```
+РЕЗЮМЕ КАНДИДАТА:
+{канонический MD активного профиля целиком}
+
+ВАКАНСИЯ:
+Название: {Title}
+Компания: {Company}
+Локация: {Location}
+Зарплата: {SalaryText}
+Ссылка: {CanonicalUrl}
+ЯЗЫК ВАКАНСИИ: {русский|английский} — адаптированное резюме написать на
+{русском|английском} языке полностью (и заголовки, и опыт, и навыки).
+Описание:
+{DescriptionMd, обрезано до 6000 знаков — «… (обрезано)»}
+
+Задача: адаптируй резюме под эту вакансию. Если резюме пустое — верни
+скелет резюме под вакансию с пометками в квадратных скобках, что
+кандидату нужно заполнить.
+```
+
+**Параметры запроса:** MaxTokens 2048, Temperature 0.3, стадия
+`ResumeAdaptation` (цепь по QualityRank — §3.2). Ответ vacancy-текста НЕ
+переводится: описание вакансии уходит модели дословно. Языковой вердикт
+считает `DetectLanguage` по тексту карточки (название + компания +
+описание): латиница > кириллица×3 → английский.
+
+**Смежные запросы** — `RelatedQueriesService.ExpandAsync` (тоже русский).
+Система: «Ты ассистент поиска вакансий. Отвечай ТОЛЬКО JSON-массивом
+коротких строк, без пояснений и без markdown-обёртки.» Задача: «Поисковый
+запрос вакансий: «{query}». Назови 2 близких по смыслу поисковых запроса —
+смежные специальности и синонимы (пример: «SAP администратор» ->
+«системный администратор»). Каждый запрос — короткая строка на русском,
+для той же местности. Ответ — JSON-массив строк.» MaxTokens 120,
+Temperature 0.3; кэш ответа 30 дней в SettingsKV.
+
+**Оценка соответствия** — ИИ не используется (`LocalMatchScorer`,
+0 запросов — §3.4).
+
+### 3.10 Полный текст вакансии в адаптации (r20)
+
+**Проблема (вопрос владельца, проверен по коду 2026-10-29):** модели
+скармливается то, что лежит в `Vacancies.DescriptionMd`. У API-порталов
+(Remotive/Jobicy/RemoteOK) и лент (WWR/Himalayas/Nodesk) полное описание
+приходит прямо в ответе поиска/ленты — там всё было честно. У hh-группы
+поиск снимает ТОЛЬКО карточку листинга («шапка»: опыт/выплаты/удалёнка,
+пара строк), вкладки-детали не открывались — модель адаптировала резюме
+без описания обязанностей.
+
+**Решение:** кнопка «Адаптировать» перед сборкой промпта достаёт
+страницу вакансии.
+
+- Флаг `IPortalService.SupportsDetail`: true — scrape-базы (hh-группа,
+  GovernmentPortalBase), false — `FeedPortalBase` и `ApiPortalBase`
+  (им ходить не нужно; их `DetailAsync` бросает `NotSupportedException`).
+- `MainViewModel.AdaptVacancyAsync` → `EnrichVacancyWithDetailAsync`:
+  если `SupportsDetail` и кэша ещё нет (`DetailFetched == 0`) —
+  `portal.DetailAsync(canonicalUrl)` в `Task.Run` (сеть/ретраи щита —
+  не на UI-потоке), слитая карточка (`DescriptionMd` со страницы,
+  `SalaryText` — карточка ?? деталь) идёт в адаптацию.
+- Кэш: `ApplicationStore.UpdateVacancyDetail(dedupeHash, descriptionMd)` —
+  UPDATE `DescriptionMd` + `DetailFetched = 1` (INSERT OR IGNORE из
+  UpsertVacancies существующую строку не трогает — поэтому отдельный
+  UPDATE). Повторная адаптация той же вакансии в сеть НЕ ходит.
+- Отказ — не повод срывать адаптацию: щит/сеть/пустое описание → warn
+  в протокол, адаптация по карточке листинга как раньше; флаг остаётся
+  0 — следующая попытка достанет текст снова.
+- Кеп описания со страницы hh поднят 1500 → 6000 знаков
+  (лимит промпта `MaxVacancyDescriptionChars`); в протоколе — честные
+  строки «открываю страницу…», «получено N зн.», «уже в кэше базы».
+- Журнал процессов (§3.8): процесс «adapt» открывается ДО похода за
+  текстом — обрыв на этом шаге тоже хвост, подбирается свипом.
+
+### 3.11 Один экземпляр приложения (r20, по образцу донора UniD)
+
+`Program.Main` ДО мигратора и DI-контейнера берёт «замок единственности»
+(`AcquireSingleInstanceGuard`): **Windows** — именованный Mutex
+`Global\AiJobSearchBy_SingleInstance` (канон Windows, как у донора UniD);
+**не-Windows** — блокировочный файл `<профиль>\ai-job-search-by\data\app.lock`,
+открытый `FileStream` с `FileShare.None` (внутри — PID и время). Причина
+гибрида: в ряде песочниц/ядер именованные мьютексы рантайма НЕ шарятся
+между процессами (воспроизведено 2026-10-29: второй процесс получал
+`createdNew=true`, а открытие чужого падало IOException) — файловая
+блокировка честна всегда.
+
+`AlreadyRunning` (ресурс занят) — второй экземпляр: в протокол warn,
+`Program.ShowAlreadyRunningNotice = true`, Avalonia поднимается и
+`App.OnFrameworkInitializationCompleted` вместо главного окна строит
+кодом маленькое окно «ai-job-search-by уже запущено» с кнопкой ОК
+(DI не поднимается — ни базы, ни автопробы каталогов, ни сети);
+закрытие окна гасит lifetime и процесс. `Unavailable` (среда не дала
+ни мьютекса, ни файла) — честная строка в протокол, старт продолжается
+без блокировки (fail-open вместо краша). Замок держится весь lifetime
+первого экземпляра (Dispose в finally Main); краш его снимает сам —
+следующий запуск не заблокирован. Проверено X11-прогоном: второй
+экземпляр показывает окошко и закрывается, первый работает дальше.
+Зачем: SQLite не рассчитана на двух писателей (SQLITE_BUSY), двойной
+обход сайтов валит щиты, двойная автопроба каталогов — лишний трафик.
+Донор UniD делает то же (Mutex + тихий выход); отличия — у нас добавлено
+окошко с ОК и файловый замок для не-Windows.
+
+## 4. Схема БД (SQLite, идемпотентные миграции EnsureColumn/PRAGMA table_info)
+
+```sql
 CREATE TABLE IF NOT EXISTS Vacancies (
   Id TEXT PRIMARY KEY, PortalId TEXT NOT NULL, ExternalId TEXT,
   CanonicalUrl TEXT NOT NULL, Title TEXT, Company TEXT, Location TEXT,
   SalaryText TEXT, DescriptionMd TEXT, SourceClass TEXT NOT NULL,
   AccessKind TEXT NOT NULL, Quality TEXT NOT NULL DEFAULT 'verified',
   DedupeHash TEXT NOT NULL UNIQUE, FetchedAt TEXT NOT NULL,
-  Status TEXT NOT NULL DEFAULT 'new' );
+  Status TEXT NOT NULL DEFAULT 'new',
+  IsSimilar INTEGER NOT NULL DEFAULT 0, -- «похожая» от hh
+  DetailFetched INTEGER NOT NULL DEFAULT 0 ); -- полный текст вакансии в кэше (r20, §3.10)
 CREATE TABLE IF NOT EXISTS Applications (
-  Id TEXT PRIMARY KEY, VacancyId TEXT NOT NULL REFERENCES Vacancies(Id),
+  Id TEXT PRIMARY KEY, VacancyId TEXT REFERENCES Vacancies(Id),
   Status TEXT NOT NULL DEFAULT 'draft', CvPath TEXT, LetterPath TEXT,
-  SentAt TEXT, FollowUpAt TEXT, Notes TEXT, CreatedAt TEXT NOT NULL );
-  -- Расширение WP-U1 (решение владельца 2026-10-22, EnsureColumn-миграции):
-  -- Employer, VacancyTitle, VacancyUrl, ResumeText (вариант, который был
-  -- отправлен — модальное окно истории), VectorJson, VectorModel.
-CREATE TABLE IF NOT EXISTS ScrapeRuns (
-  Id TEXT PRIMARY KEY, StartedAt TEXT NOT NULL, FinishedAt TEXT,
-  PortalOrderSnapshot TEXT NOT NULL, ConfigSnapshotHash TEXT NOT NULL,
-  ProfileRevision TEXT NOT NULL, Status TEXT NOT NULL DEFAULT 'running' );
-CREATE TABLE IF NOT EXISTS PortalRunReports (
-  RunId TEXT NOT NULL REFERENCES ScrapeRuns(Id), PortalId TEXT NOT NULL,
-  Status TEXT NOT NULL, ItemsFound INTEGER NOT NULL DEFAULT 0,
-  Error TEXT, DurationMs INTEGER, PRIMARY KEY (RunId, PortalId) );
-CREATE TABLE IF NOT EXISTS AiJobs (
-  Id TEXT PRIMARY KEY, Phase TEXT NOT NULL, ProviderId TEXT NOT NULL,
-  Model TEXT, PromptName TEXT NOT NULL, PromptVersion INTEGER NOT NULL,
-  Status TEXT NOT NULL, RawResponse TEXT, ParseStatus TEXT NOT NULL DEFAULT 'ok',
-  StartedAt TEXT, FinishedAt TEXT );
-CREATE TABLE IF NOT EXISTS SettingsKV ( Key TEXT PRIMARY KEY, Value TEXT NOT NULL );
-CREATE TABLE IF NOT EXISTS PdfDocuments ( -- WP-U1 (решение владельца
-  -- 2026-10-22): PDF живут на диске (папка откликов), база — векторная
-  -- ссылка: путь + хэш + извлечённый текст + вектор локального эмбеддера
-  -- (WP-U2: Qwen3-Embedding-0.6B по умолчанию, Apache-2.0; VectorModel —
-  -- модель-владелец вектора, смена модели = пере-векторизация из базы).
+  SentAt TEXT, FollowUpAt TEXT, Notes TEXT, CreatedAt TEXT NOT NULL,
+  -- снапшот отклика (переживает удаление вакансии):
+  Employer TEXT, VacancyTitle TEXT, VacancyUrl TEXT, ResumeText TEXT,
+  VectorJson TEXT, VectorModel TEXT );
+CREATE TABLE IF NOT EXISTS DismissedVacancies ( -- «крестики» юзера
+  DedupeHash TEXT PRIMARY KEY, Title TEXT, Company TEXT, Location TEXT,
+  SalaryText TEXT, CanonicalUrl TEXT, DismissedAt TEXT NOT NULL );
+CREATE TABLE IF NOT EXISTS PdfDocuments (
   Id TEXT PRIMARY KEY, FilePath TEXT NOT NULL UNIQUE, FileHash TEXT NOT NULL,
-  ExtractedText TEXT, VectorJson TEXT, VectorModel TEXT, IndexedAt TEXT NOT NULL );
-История AI-результатов не теряется (канон: связь результат ↔ промпт ↔
-версия ↔ провайдер ↔ модель ↔ raw ↔ parse status).
+  ExtractedText TEXT, VectorJson TEXT, VectorModel TEXT,
+  IndexedAt TEXT NOT NULL );
+CREATE TABLE IF NOT EXISTS Processes ( -- журнал процессов, «подбор хвостов» (r20, §3.8)
+  Id TEXT PRIMARY KEY, Kind TEXT NOT NULL, Detail TEXT,
+  Status TEXT NOT NULL, StartedAt TEXT NOT NULL, FinishedAt TEXT );
+CREATE TABLE IF NOT EXISTS SettingsKV ( Key TEXT PRIMARY KEY, Value TEXT NOT NULL );
+-- + ScrapeRuns / PortalRunReports / AiJobs (история прогонов и AI-результатов
+--   сохранена: результат ↔ промпт ↔ версия ↔ провайдер ↔ модель ↔ raw ↔ parse)
+```
 
 ## 5. Статусы сущностей
-Vacancy: new | shortlisted | applied | duplicate | archived.
-Application: draft | review | sent | reply | rejected | offer | withdrawn.
-ScrapeRun: running | done | failed | cancelled.
+
+Vacancy: new | shortlisted | applied | duplicate | archived | dismissed
+(мягкое удаление — в DismissedVacancies).
+Application: draft | **adapted** (r17e: адаптация готова, PDF на диске) |
+review | sent | reply | rejected | offer | withdrawn.
 PortalRunReport: ok | no_key | refused | breaker | parse_fail | disabled.
 AiJob: queued | running | done | failed | cancelled | parse_failed.
+ProcessRun: running | done | failed | interrupted (журнал процессов §3.8;
+«running», переживший перезапуск приложения, — это хвост обрыва, закрывается
+свитчем при старте).
 
 ## 6. Потоки и производительность
-UI никогда не блокируется; обновления только через Dispatcher.UIThread; LLM/сеть —
-async; экспортёры и тяжёлые операции — Task.Run; EndpointGate сериализует LLM;
-порталы обходятся последовательно; CancellationToken во всех долгих операциях;
-статусы idle/running/error/done видны в UI.
+
+Один LLM-запрос за раз (parallel LLM запрещён железно); порталы —
+последовательно; CancellationToken во всех долгих операциях; статусы
+idle/running/error/done видны в UI; отмена поиска возвращает собранное.
 
 ## 7. Обработка ошибок
-Портал недоступен/капча/403 → refused + breaker, прогон живёт; нет ключа → no_key
-с причиной; LLM Unavailable → каскад дальше; Auth → понятное сообщение + подсказка
-keys-check; битый JSON от модели → raw сохранён + parse_failed; нет интернета →
-понятный статус, данные не теряются; отмена пользователем = graceful interrupted
-с телеметрией.
+
+Портал недоступен/капча/403 → отказ портала с причиной, прогон живёт;
+смена вёрстки → ParseFailedException (громко); LLM: любой провал провайдера
+→ протокол + следующий в цепи, исчерпание → LogError + null;
+Auth (401) → честная причина «ключ отклонён на стороне провайдера —
+выпустить новый» + перебор продолжается; битый JSON от модели → raw
+сохранён + parse_failed; нет интернета → понятный статус, данные не
+теряются; отмена пользователем = graceful. Обрыв приложения (интернет/
+питание/закрыли окно) посреди поиска или адаптации → незакрытая строка
+журнала процессов закрывается при следующем старте с объяснением в
+протоколе (§3.8); сбой вне портальных попыток не оставляет «ищу…» висеть —
+catch вокруг тела прогона (r20).
 
 ## 8. Безопасность и приватность
-Ключи только в config/local.json (gitignore); личные данные только в data/
-(gitignore); телеметрии нет; polite-crawl и robots.txt обязательны; уважать ToS
-источников (legalAccess=forbidden → адаптер не пишем, graveyard); zip-дистрибутив
-не содержит ключей и личных данных по построению.
+
+Ключи только в `state\local.json` (gitignore); личные данные только в
+профиле пользователя; телеметрии нет; ключеобразные строки в коде/логах не
+появляются (гард-тесты). Потоки данных наружу описаны точно в PRIVACY.md
+(отправка резюме/вакансии — только по явному действию; локальный режим —
+облачные звенья сняты). ToS-статусы источников — оценка проекта с датой
+проверки в реестре, не юридическая гарантия; forbidden-источники не
+реализуются (graveyard).
 
 ## 9. Терминология (канон)
-Portal — источник вакансий с контрактом IPortalService. JobPosting (Vacancy) —
-нормализованная вакансия. ScrapeRun — прогон обхода порталов со снапшотом порядка.
-Application — отклик на вакансию с артефактами CV/письма. Profile — данные
-кандидата в data/profile/. Provider — AI-провайдер каскада. Cascade — упорядоченная
-цепь провайдеров с липкостью. KeysCheck — on-demand диагностика ключей и пингов.
-ATS-check — детерминированная проверка text-слоя и страниц. Reviewer — фаза
-критики черновиков вторым LLM-вызовом. WP — work package плана (PLAN.md).
+
+Portal — источник вакансий с контрактом IPortalService. JobPosting
+(Vacancy) — нормализованная вакансия. TitleKey — дедуп-ключ «название +
+работодатель до первой точки». DismissedVacancies — «крестики» юзера.
+Application — отклик (снапшот работодателя/вакансии/текста резюме).
+Provider — звено ИИ-цепи. Chain — упорядоченная цепь с перебором сбоев
+Sticky — липкость удачной модели (openrouter). План страниц —
+счётчик + пагинатор SERP. DetectLanguage — язык адаптации по языку
+вакансии. MatchAssessment — осознанный отказ ИИ в пользу LocalMatchScorer.
 
 ## 10. Что считается архитектурно важным (не ломать)
-Послойный конфиг и quarantine битого json; снапшот порядка порталов и конфига на
-старте прогона; дедуп ДО нормализации по композитному ключу; поиск ≠ подача;
-preflight и watchdog on-demand (поллинг запрещён); LlmClient = одна попытка,
-владелец ретраев = оркестратор; EndpointGate сериализация; каскад: отказ провайдера
-≠ крах; экспорт без LaTeX; ключи и личные данные вне git; документация синхронна
-коду; граф-комментарии и PYDOC с первого файла.
 
-## 11. Ворк-пакеты (порядок канонический, детали в PLAN.md)
-WP-P0 PortalRegistry + контракт + DedupeHasher + keys-check; WP-P1 rabota_by + hh;
-WP-P2 hirify + jobs_dev_by + belmeta + praca_by; WP-P3 remoteok + remotive +
-himalayas + jobicy; WP-P4 wwr + nodesk + hn; WP-P5 adzuna + jooble + careerjet +
-web3_jobs + yc; WP-P6 второй эшелон РБ + пробник jobs_tut_by (alias_of hh?);
-WP-P7 госсектор. WP-A AI-цепочка (6 провайдеров, профили, префлайт); WP-E экспорт +
-ATS (пин PdfPig); WP-U UI-вкладки и Settings-порталы; WP-D доки/публичная сборка
-(self-contained win-x64 zip, README, NOTICE.md).
+Послойный конфиг и quarantine битого json; «никаких тихих игноров» (каждый
+skip — с причиной и решением); перебор ВСЕХ сбоев провайдера цепью —
+стадии не умирают от одного звена; осознанный отказ ИИ на
+оценке соответствия (LocalMatchScorer); поиск ≠ подача (автоотклика нет);
+hh — только страницы выдачи; каждая следующая — НОВОЙ ВКЛАДКОЙ
+из первой страницы с рваной паузой 5–25 с (сайт против мгновенной скачки —
+прогон 2026-10-28: страница 5 в кэше оказалась щитом и убила 5–8), все
+страницы — в кэш, потом парсинг по очереди (итог фазы открытия — отдельная
+строка протокола); одна плохая страница кэша НЕ убивает обход (пропуск с
+warn); дедуп URL+TitleKey; soft-delete «крестиков» (DismissedVacancies не
+возвращаются); FK явный и неубиваемый (строка подключения + PRAGMA при
+каждом Open); EndpointGate/параллельные LLM запрещены; экспорт без LaTeX;
+ключи и личные данные вне git; документация синхронна коду;
+граф-комментарии с первого файла.
+
+## 11. Состояние сборки (2026-10-30)
+
+Доставлено и покрыто тестами (430, все зелёные; сборка 0/0): окно-
+«рабочее место» (UiLayout, layout.json, протокол, карточки цепи с лампами);
+порталы и UI-мелочи; гео-фильтр (страны/города/удалёнка); база вакансий
+между запусками + «крестики» + смежные от ИИ; регион зеркала + дедуп
+TitleKey + диагностика базы; мягкие удаления с FK; поиск «только страницы
+выдачи» (план страниц, кэш, карточки с листинга) + кнопка «Адаптировать»
+как единственный вход в цепь + язык адаптации по языку вакансии; перебор
+цепи на ЛЮБОЙ сбой провайдера; r21: векторизация вырезана (векторы ничего
+не потребляли; emb-шум в протоколе исчез); открытие выдачи вкладками с рваной паузой 5–25 с +
+живучесть парсинга кэша + добор кэша при отмене + счётчики у окна
+«Вакансии» — «найдено X вакансий» (крестик уменьшает), «дублей исключено Y»
+(оранжевым) и «удалённых вами скрыто Z» (встречи с крестиками за сессию);
+универсальный поиск — 4 зеркала hh (Россия, Беларусь,
+Казахстан, Узбекистан) + миграция сохранённого выбора сайтов на полный
+формат снапшота; пустой content модели = отказ ступени (провайдер →
+BusyException → фолбэк цепи; VM не создаёт PDF/историю) — глух «адаптировано,
+а резюме пустое» закрыт (r18b). Журнал процессов с «подбором хвостов»
+(r20): скользящий Id поиска/адаптации в базе, финал в любом исходе,
+незакрытые хвосты закрывает стартовый свип; точные тексты промптов
+адаптации — §3.9; полный текст вакансии при адаптации (страница вакансии
+достаётся и кэшируется, §3.10) и один экземпляр приложения (Mutex,
+§3.11) — r20. r21: векторизация вырезана (векторы ничего не потребляли;
+столбцы VectorJson/VectorModel в базе оставлены пустыми) + ВСЕ чекбоксы
+порталов по умолчанию выключены (юзер собирает цепочку сам); praca.by
+на день подключался и вырезан решением владельца (см. §3.3).

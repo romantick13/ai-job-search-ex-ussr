@@ -5,47 +5,57 @@ using System.Text.Json.Nodes;
 namespace AiJobSearchBy.Services;
 
 // ============================================================================
-// WP-CONFIG (RFC-004 §2.1): local.json — секреты + машинно-специфичные
-// настройки окружения, живёт вне репо (%APPDATA%\ai-job-search-by\local.json —
-// канон путей патча 05), создаётся при первом старте из встроенного шаблона
-// local.example.json (WP-U2: секция Ai.Embeddings — BaseUrl/Model локального
-// эмбеддера; не секреты, но зависят от машины — им здесь самое место)
-// (EmbeddedResource; паттерн UniD/YoutubeConfigService.ReadEmbeddedDefault —
-// файл всегда в сборке, путь искать не нужно).
-//
+// local.json — секреты + машинно-специфичные
+// настройки окружения, живёт вне репо (%USERPROFILE%\ai-job-search-by\local.json;
+// ранее %APPDATA%, старые файлы переносятся
+// автоматически), создаётся при первом старте из встроенного шаблона
+// local.example.json (секция Ai.Embeddings — BaseUrl/Model локального
+// эмбеддера; не секреты, но зависят от машины — им здесь самое место;
+// EmbeddedResource — файл всегда в сборке, путь искать не нужно).
+
 // FLOW: Program.Main -> CompositionRoot.AddRegistrations -> ленивая фабрика
-//       ConfigService (первый resolve — до первого провайдера, логи [config]
-//       идут раньше «провайдер готов») -> ResolveAiKey (лестница env ->
-//       local.json) -> провайдеры; GetPortalKey -> KeysCheckService (шов
-//       ILocalSecrets, комментарий в ILocalSecrets.cs).
-//
-// Лестница ключа (RFC-004 §3): local.json — база; env — опциональный
+// ConfigService (первый resolve — до первого провайдера, логи [config]
+// идут раньше «провайдер готов») -> ResolveAiKey (лестница env ->
+// local.json) -> провайдеры; GetPortalKey -> KeysCheckService (шов
+// ILocalSecrets, комментарий в ILocalSecrets.cs).
+
+// Лестница ключа: local.json — база; env — опциональный
 // override поверх (CI/серверные сценарии); пусто -> провайдер вне цепи со
-// своей честной причиной (НИ-2). Источник и маска каждого найденного ключа
+// своей честной причиной. Источник и маска каждого найденного ключа
 // — в протоколе при старте.
-//
+
 // Консистентность при старте (контракт «никаких тихих игноров»):
-//   файла нет          -> создать из шаблона, LogSuccess с путём;
-//   битый JSON         -> НЕ затирать: бэкап local.corrupt-<дата>.json рядом,
-//                         свежий шаблон, LogError с путём бэкапа;
-//   новых полей нет    -> докатка merge'ем из шаблона, значения сохраняются,
-//                         LogSuccess со списком добавленного;
-//   неизвестные поля   -> LogWarn (ловец опечаток: "APIKEY" vs "ApiKey");
-//   не-строка в ApiKey -> LogWarn, значение игнорируется;
-//   мусор в значении   -> LogWarn (кавычки/пробелы — урок 401-саги SiliconFlow
-//                         2026-10-21); значение уходит как есть — маска в
-//                         логе покажет кавычку, а не первый же 401.
-//
-// Приватность (RFC-004, PRIVACY.md): значения ключей НИКОГДА не попадают в
-// лог — только Mask() (первые и последние 4 символа); сам файл — вне репо
-// (.gitignore + RepoSecretsGuardTests, RFC-004 §2.5).
-//
+// файла нет -> создать из шаблона, LogSuccess с путём;
+// битый JSON -> НЕ затирать: бэкап local.corrupt-<дата>.json рядом,
+// свежий шаблон, LogError с путём бэкапа;
+// новых полей нет -> докатка merge'ем из шаблона, значения сохраняются,
+// LogSuccess со списком добавленного;
+// неизвестные поля -> LogWarn (ловец опечаток: "APIKEY" vs "ApiKey");
+// не-строка в ApiKey -> LogWarn, значение игнорируется;
+// мусор в значении -> LogWarn (кавычки/пробелы — урок 401-саги SiliconFlow);
+// значение уходит как есть — маска в
+// логе покажет кавычку, а не первый же 401.
+
+// Приватность (PRIVACY.md): значения ключей НИКОГДА не попадают в
+// лог — только Mask (первые и последние 4 символа); сам файл — вне репо
+// (.gitignore + RepoSecretsGuardTests).
+
 // THREAD: LoadOrCreate — одноразовый при старте (DI-синглтон, ленивая
-//         фабрика CompositionRoot); ResolveAiKey/GetPortalKey читают
-//         immutable-снапшот — потокобезопасно.
+// фабрика CompositionRoot); ResolveAiKey/GetPortalKey читают
+// immutable-снапшот — потокобезопасно.
 // STATE: _root — снапшот local.json на момент загрузки; мутации только
-//        внутри LoadOrCreate (merge), после загрузки — только чтение.
+// внутри LoadOrCreate (merge), после загрузки — только чтение.
 // ============================================================================
+// кастомное звено ИИ-цепи (Chain.Custom в local.json) — имя +
+// OpenAI-совместимый адрес /v1 + модель + ключ. Локальные адреса
+// (localhost/127.0.0.1) ключа не требуют — как ollama-local/lm-studio.
+public sealed record ChainLinkData(string Id, string Name, string BaseUrl, string Model, string ApiKey)
+{
+    public bool RequiresKey =>
+        !(BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase)
+          || BaseUrl.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase));
+}
+
 public sealed class ConfigService : ILocalSecrets
 {
     public const string ConfigFileName = "local.json";
@@ -74,12 +84,12 @@ public sealed class ConfigService : ILocalSecrets
         AddedFields = addedFields;
     }
 
-    // ------------------------------------------------------------------
+
     // FLOW: первый resolve из DI -> файл/шаблон/merge -> снапшот готов.
     // baseDirOverride — только тесты; продакшн-путь резолвится как в
-    // CompositionRoot.StatePath (guard абсолютного пути К1, немой фолбэк
-    // рядом с exe — НИ-2).
-    // ------------------------------------------------------------------
+    // CompositionRoot.StatePath (guard абсолютного пути немой фолбэк
+    // рядом с exe — ).
+
     public static ConfigService LoadOrCreate(ILogService log, string? baseDirOverride = null)
     {
         try
@@ -88,6 +98,16 @@ public sealed class ConfigService : ILocalSecrets
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, ConfigFileName);
             var template = ParseTemplate(log);
+
+            if (!File.Exists(path))
+            {
+                // Переход со старой сборки: конфиг мог остаться в %APPDATA% —
+                // переносим, чтобы ключи пережили смену адреса.
+                if (baseDirOverride is null && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AIJOB_CONFIG_DIR")))
+                {
+                    MigrateFromAppDataIfAny(log, path);
+                }
+            }
 
             if (!File.Exists(path))
             {
@@ -135,7 +155,7 @@ public sealed class ConfigService : ILocalSecrets
         }
         catch (Exception ex)
         {
-            // НИ-2: конфиг не должен валить старт; провайдеры честно встанут
+            // конфиг не должен валить старт; провайдеры честно встанут
             // вне цепи со своими причинами (WARN при их старте).
             log.LogError($"[config] сбой загрузки {ConfigFileName}: {ex.Message}; " +
                          "решение: старт без секретов — ключи можно ввести позже (env или файл)");
@@ -143,11 +163,11 @@ public sealed class ConfigService : ILocalSecrets
         }
     }
 
-    // ------------------------------------------------------------------
+
     // Лестница: env (непустой, мусор — WARN, значение как есть) ->
-    // local.json -> null (провайдер сам крикнет свою причину, НИ-2).
+    // local.json -> null (провайдер сам крикнет свою причину, ).
     // Возвращаем (значение, источник) — источник нужен составителю лога.
-    // ------------------------------------------------------------------
+
     public (string? Value, string Source) ResolveAiKey(string providerId, string envVarName)
     {
         var env = Environment.GetEnvironmentVariable(envVarName);
@@ -167,8 +187,8 @@ public sealed class ConfigService : ILocalSecrets
         return (null, "нет");
     }
 
-    // ILocalSecrets: ключ портала по Id — секция Portals.{portalId}.ApiKey
-    // (RFC-004 §2.1). Найден — маска в лог; нет — null (keys-check скажет
+    // ILocalSecrets: ключ портала по Id — секция Portals.{portalId}.ApiKey.
+    // Найден — маска в лог; нет — null (keys-check скажет
     // no_key с причиной, тихих игноров нет и тут: отсутствие секции —
     // легитимное состояние «ключ не введён»).
     public string? GetPortalKey(string portalId)
@@ -179,14 +199,14 @@ public sealed class ConfigService : ILocalSecrets
         return string.IsNullOrWhiteSpace(key) ? null : key;
     }
 
-    // ------------------------------------------------------------------
-    // WP-U1: окно настроек читает и пишет ключи Ai.{providerId}.ApiKey.
+
+    // окно настроек читает и пишет ключи Ai.{providerId}.ApiKey.
     // PeekAiKey — сырое значение ТОЛЬКО в локальное окно настроек (в лог не
-    // пишется: маскирование публичных путей соблюдено, PrivACy RFC-004).
+    // пишется: правила PRIVACY.md соблюдены).
     // UpdateAiKey — атомарная запись (temp+move) с сохранением ВСЕХ остальных
     // полей файла (правка одного узла JsonObject, не пересоздание файла);
-    // каждый шаг — событие протокола (НИ-4), значение — только маской.
-    // ------------------------------------------------------------------
+    // каждый шаг — событие протокола, значение — только маской.
+
     public string? PeekAiKey(string providerId)
     {
         return ReadSecret(_root["Ai"] as JsonObject, providerId);
@@ -196,7 +216,7 @@ public sealed class ConfigService : ILocalSecrets
     {
         if (FilePath == "?")
         {
-            // НИ-2: загрузка сорвалась ранее — писать некуда, молчание запрещено.
+            // загрузка сорвалась ранее — писать некуда, молчание запрещено.
             _log.LogError($"[config] ключ Ai.{providerId}.ApiKey не сохранён — причина: " +
                           "local.json не загружен (сбой загрузки при старте); " +
                           "решение: поправьте local.json вручную и перезапустите приложение");
@@ -236,76 +256,73 @@ public sealed class ConfigService : ILocalSecrets
                      "решение: перезапустите приложение, чтобы цепь перечитала ключи");
     }
 
-    // ------------------------------------------------------------------
-    // WP-U2: локальный эмбеддер — ключа нет, решают BaseUrl/Model. Лестница
-    // та же (RFC-004 §3): env -> local.json Ai.Embeddings -> дефолт Ollama
-    // (LocalEmbeddingService.Default*). Не секреты — в протокол идут без
-    // маски, но ровно один раз при старте (составитель графа).
-    // ------------------------------------------------------------------
-    public (string BaseUrl, string Model) ResolveEmbeddings(string envBaseUrlVar, string envModelVar)
+
+    // r21: методы эмбеддера (миграция Ollama-дефолтов, Resolve/Peek/UpdateEmbeddings)
+    // вырезаны вместе с векторизацией.
+
+    // кастомные звенья ИИ-цепи —
+    // секция Chain.Custom в local.json: имя + OpenAI-совместимый адрес /v1 +
+    // модель + ключ (ключу здесь самое место — local.json и есть файл
+    // секретов, в репо не попадает). Нет секции/пусто = звеньев нет —
+    // легитимное состояние без WARN (секция доливается merge'ем из шаблона).
+
+
+    // Чтение кастомных звеньев (окно настроек, карточки дашборда, проверка).
+    // Битые записи (не JsonObject, нет Id/Name) — WARN и пропуск, файл не трогаем.
+    public IReadOnlyList<ChainLinkData> PeekCustomLinks()
     {
-        var baseUrl = Environment.GetEnvironmentVariable(envBaseUrlVar);
-        var source = "env";
-        if (string.IsNullOrWhiteSpace(baseUrl))
+        var links = new List<ChainLinkData>();
+        if (_root["Chain"] is not JsonObject chain || chain["Custom"] is not JsonArray arr)
         {
-            baseUrl = ReadLeaf(_root["Ai"] as JsonObject, "Embeddings", "BaseUrl");
-            source = "local.json";
-        }
-        var model = Environment.GetEnvironmentVariable(envModelVar);
-        var modelSource = "env";
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            model = ReadLeaf(_root["Ai"] as JsonObject, "Embeddings", "Model");
-            modelSource = "local.json";
+            return links;
         }
 
-        baseUrl = string.IsNullOrWhiteSpace(baseUrl)
-            ? Services.Ai.LocalEmbeddingService.DefaultBaseUrl
-            : baseUrl.Trim();
-        model = string.IsNullOrWhiteSpace(model)
-            ? Services.Ai.LocalEmbeddingService.DefaultModel
-            : model.Trim();
-        if (source == "env" && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(envBaseUrlVar)))
+        foreach (var node in arr.OfType<JsonObject>())
         {
-            source = "дефолт";
+            var id = StrLeaf(node, "Id");
+            var name = StrLeaf(node, "Name");
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name))
+            {
+                _log.LogWarn("[config] запись Chain.Custom без Id/Name — пропущена; " +
+                             "решение: заполнить имя звена в настройках и сохранить");
+                continue;
+            }
+            links.Add(new ChainLinkData(
+                id, name,
+                StrLeaf(node, "BaseUrl") ?? "",
+                StrLeaf(node, "Model") ?? "",
+                StrLeaf(node, "ApiKey") ?? ""));
         }
-        if (modelSource == "env" && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(envModelVar)))
-        {
-            modelSource = source;
-        }
-
-        _log.Log($"[config] эмбеддер: base={baseUrl}, model={model} ({(source == modelSource ? source : source + "/" + modelSource)})");
-        return (baseUrl, model);
+        return links;
     }
 
-    // Сырые значения для окна настроек (пустые строки — «в файле не задано,
-    // работает дефолт»; в UI подставится дефолт при сохранении).
-    public (string BaseUrl, string Model) PeekEmbeddings()
-        => (ReadLeaf(_root["Ai"] as JsonObject, "Embeddings", "BaseUrl") ?? "",
-            ReadLeaf(_root["Ai"] as JsonObject, "Embeddings", "Model") ?? "");
-
-    // Атомарная запись Ai.Embeddings (temp+move) с сохранением всех остальных
-    // полей; пустая строка = «вернуть дефолт» (лестница упадёт в Default*).
-    public void UpdateEmbeddings(string baseUrl, string model)
+    // Атомарная запись Chain.Custom (temp+move, остальные поля файла целы);
+    // значение ключа — в файл, в протокол только маска .
+    public void UpdateChain(IReadOnlyList<ChainLinkData> links)
     {
         if (FilePath == "?")
         {
-            _log.LogError($"[config] настройки эмбеддера не сохранены — причина: " +
-                          "local.json не загружен (сбой загрузки при старте); " +
-                          "решение: поправьте local.json вручную и перезапустите приложение");
+            _log.LogError("[config] кастомные звенья цепи не сохранены — причина: local.json " +
+                          "не загружен (сбой загрузки при старте); решение: поправьте local.json " +
+                          "вручную и перезапустите приложение");
             return;
         }
 
-        var ai = _root["Ai"] as JsonObject ?? new JsonObject();
-        _root["Ai"] = ai;
-        var section = ai["Embeddings"] as JsonObject;
-        if (section is null)
+        var chain = _root["Chain"] as JsonObject ?? new JsonObject();
+        _root["Chain"] = chain;
+        var arr = new JsonArray();
+        foreach (var l in links)
         {
-            section = new JsonObject();
-            ai["Embeddings"] = section;
+            arr.Add(new JsonObject
+            {
+                ["Id"] = l.Id,
+                ["Name"] = l.Name,
+                ["BaseUrl"] = l.BaseUrl,
+                ["Model"] = l.Model,
+                ["ApiKey"] = l.ApiKey,
+            });
         }
-        section["BaseUrl"] = string.IsNullOrWhiteSpace(baseUrl) ? "" : baseUrl.Trim();
-        section["Model"] = string.IsNullOrWhiteSpace(model) ? "" : model.Trim();
+        chain["Custom"] = arr;
 
         try
         {
@@ -313,16 +330,65 @@ public sealed class ConfigService : ILocalSecrets
         }
         catch (Exception ex)
         {
-            _log.LogError($"[config] настройки эмбеддера не записаны: {ex.Message}; " +
+            _log.LogError($"[config] кастомные звенья не записаны: {ex.Message}; " +
                           "решение: проверьте права на файл и повторите");
             return;
         }
 
-        _log.Log($"[config] эмбеддер сохранён из окна настроек: base={section["BaseUrl"]}, " +
-                 $"model={section["Model"]} ({FilePath})");
-        _log.LogWarn("skip: настройки эмбеддера применяются при старте — сервис уже собран; " +
-                     "решение: перезапустите приложение");
+        _log.Log(links.Count == 0
+            ? $"[config] кастомные звенья цепи очищены ({FilePath})"
+            : $"[config] кастомные звенья цепи сохранены: {links.Count} шт. — " +
+              string.Join("; ", links.Select(l => $"{l.Name}: {l.BaseUrl} / " +
+                  $"{(string.IsNullOrWhiteSpace(l.Model) ? "модель не указана" : l.Model)}, " +
+                  $"ключ {Mask(l.ApiKey)}")) + $" ({FilePath})");
     }
+
+    // кастомные звенья как ПОЛНОЦЕННЫЕ провайдеры адаптации — хвост
+    // фолбэка цепи (qualityRank 7+, после встроенных). Локальные лимиты не
+    // ведём (суточные капы кастомных провайдеров не публикуются — [cost]
+    // соберёт фактически). Битый адрес не валит сборку графа : WARN и
+    // звено пропущено.
+    public IReadOnlyList<Services.Ai.OpenAiCompatibleProvider> BuildCustomProviders(Services.ILogService log)
+    {
+        var result = new List<Services.Ai.OpenAiCompatibleProvider>();
+        var rank = 7;
+        foreach (var link in PeekCustomLinks())
+        {
+            if (string.IsNullOrWhiteSpace(link.BaseUrl)
+                || !Uri.TryCreate(link.BaseUrl, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                log.LogWarn($"skip: кастомное звено «{link.Name}» вне рабочей цепи — причина: " +
+                            $"адрес не задан или не http(s) ({link.BaseUrl}); " +
+                            "решение: вписать адрес вида https://…/v1/ в настройках");
+                continue;
+            }
+
+            try
+            {
+                result.Add(new Services.Ai.OpenAiCompatibleProvider(
+                    log,
+                    name: link.Name,
+                    baseUrl: link.BaseUrl,
+                    model: string.IsNullOrWhiteSpace(link.Model) ? null : link.Model,
+                    apiKey: string.IsNullOrWhiteSpace(link.ApiKey) ? null : link.ApiKey,
+                    qualityRank: rank++,
+                    requireApiKey: link.RequiresKey,
+                    signupHint: "настройки приложения"));
+            }
+            catch (Exception ex)
+            {
+                // /кривое звено не должно ронять сборку всего графа.
+                log.LogError($"[config] кастомное звено «{link.Name}» не собрано — " +
+                              $"причина: {ex.Message}; решение: проверить адрес и модель в настройках");
+            }
+        }
+        return result;
+    }
+
+    // Строка-лист плоского объекта: node[key]. null/не-строка → null.
+    private static string? StrLeaf(JsonObject node, string key)
+        => node[key] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 
     private void ResolveLog(string what, string value)
     {
@@ -358,14 +424,16 @@ public sealed class ConfigService : ILocalSecrets
     }
 
     // Путь: override (тесты) -> AIJOB_CONFIG_DIR (изоляция тестов контейнера)
-    // -> %APPDATA%\ai-job-search-by -> фолбэк рядом с exe (кричим).
+    // -> %USERPROFILE%\ai-job-search-by (: конфиг
+    // с ключами живёт в профиле и НЕ зависит от перекомпиляции) -> фолбэк рядом
+    // с exe (кричим).
     private static string ResolveDir(ILogService log, string? baseDirOverride)
     {
         var dir = baseDirOverride ?? Environment.GetEnvironmentVariable("AIJOB_CONFIG_DIR");
         if (!string.IsNullOrWhiteSpace(dir))
             return dir;
 
-        var profileDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var profileDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var rooted = !string.IsNullOrWhiteSpace(profileDir) && Path.IsPathRooted(profileDir);
         if (!rooted)
         {
@@ -373,6 +441,34 @@ public sealed class ConfigService : ILocalSecrets
                         "рядом с exe (фолбэк AppContext.BaseDirectory)");
         }
         return Path.Combine(rooted ? profileDir : AppContext.BaseDirectory, "ai-job-search-by");
+    }
+
+    // Одноразовый перенос со старого адреса (%APPDATA%\ai-job-search-by —
+    // до): копируем local.json в новый профильный каталог, ключи
+    // юзера сохраняются, заново настраивать не придётся. Копия, не перенос:
+    // старый файл не трогаем (откат безопасен). Ошибка копирования — WARN,
+    // старт продолжается по обычной лестнице .
+    private static void MigrateFromAppDataIfAny(ILogService log, string newPath)
+    {
+        try
+        {
+            var oldDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            if (string.IsNullOrWhiteSpace(oldDir) || !Path.IsPathRooted(oldDir))
+                return;
+            var oldPath = Path.Combine(oldDir, "ai-job-search-by", ConfigFileName);
+            if (!File.Exists(oldPath) || File.Exists(newPath))
+                return;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
+            File.Copy(oldPath, newPath, overwrite: false);
+            log.LogSuccess($"[config] local.json перенесён со старого места: {oldPath} -> {newPath} " +
+                           "(ключи сохранены; старый файл оставлен как есть)");
+        }
+        catch (Exception ex)
+        {
+            log.LogWarn($"[config] перенос local.json со старого места не удался: {ex.Message}; " +
+                        "решение: скопировать ключи вручную в профильный каталог ai-job-search-by");
+        }
     }
 
     // Битый файл: копия с таймштампом, свежий шаблон, крик с путём бэкапа.
@@ -387,7 +483,7 @@ public sealed class ConfigService : ILocalSecrets
         catch (Exception copyEx)
         {
             log.LogError($"[config] бэкап битого {ConfigFileName} не удался: {copyEx.Message} — " +
-                         "решение: файл не тронут, исправь его руками (RFC-004: секреты не пересоздаются молча)");
+                         "решение: файл не тронут, исправь его руками — секреты не пересоздаются молча");
             return;
         }
         WriteAtomic(path, template.ToJsonString(Indented));
@@ -452,7 +548,7 @@ public sealed class ConfigService : ILocalSecrets
         }
     }
 
-    // RFC-004 §2.1: атомарная запись — temp + move.
+    // Атомарная запись — temp + move.
     private static void WriteAtomic(string path, string content)
     {
         var tmp = path + ".tmp";
@@ -467,7 +563,7 @@ public sealed class ConfigService : ILocalSecrets
             .FirstOrDefault(n => n.EndsWith(TemplateResourceSuffix, StringComparison.OrdinalIgnoreCase));
         if (resourceName is null)
         {
-            // НИ-2: шаблона нет — кричим; файл создастся минимальным, ключи
+            // шаблона нет — кричим; файл создастся минимальным, ключи
             // всё равно подхватятся из env.
             log.LogError($"[config] встроенный шаблон *{TemplateResourceSuffix} не найден в сборке — " +
                          "решение: проверь csproj (EmbeddedResource local.example.json) и пересобери");
@@ -485,7 +581,7 @@ public sealed class ConfigService : ILocalSecrets
     }
 
     // Мусор во вставке: крайние пробелы и кавычки где угодно (кавычки из
-    // `set VAR="..."` в cmd становятся частью значения — урок 2026-10-21).
+    // `set VAR="..."` в cmd становятся частью значения — урок).
     private static bool IsDirty(string value)
         => value != value.Trim() || value.Contains('"') || value.Contains('\'');
 

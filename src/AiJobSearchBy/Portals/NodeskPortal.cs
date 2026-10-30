@@ -4,8 +4,8 @@ using AiJobSearchBy.Services;
 namespace AiJobSearchBy.Portals;
 
 // FLOW: адаптер NoDesk на RSS-ленте (Access=Feed, Auth=None, карточка
-// BuiltInPortals.Core). Лента: https://nodesk.co/remote-jobs/index.xml —
-// подтверждена живым зондом 2026-10-22 (10 свежих вакансий).
+// BuiltInPortals.Core). Лента: https:// nodesk.co/remote-jobs/index.xml —
+// подтверждена живым зондом (10 свежих вакансий).
 // Заголовок вида «Должность at Компания» — компания выцепляется хвостом
 // « at …» (последнее вхождение, чтобы не съесть «at» внутри должности);
 // без «at» компания честно null.
@@ -19,16 +19,7 @@ public sealed class NodeskPortal : FeedPortalBase
     {
     }
 
-    private static PortalDescriptor BuildDescriptor() => new()
-    {
-        Id = "nodesk",
-        DisplayName = "NoDesk",
-        SourceClass = PortalSourceClass.Commercial,
-        Access = PortalAccessKind.Feed,
-        Auth = PortalAuthKind.None,
-        DefaultPriority = 6,
-        ApplySupported = true,
-    };
+    private static PortalDescriptor BuildDescriptor() => BuiltInPortals.CoreCard("nodesk");
 
     protected override string BuildFeedUrl(string query) => FeedUrl;
 

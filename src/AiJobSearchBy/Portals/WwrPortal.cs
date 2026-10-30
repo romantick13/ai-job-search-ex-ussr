@@ -4,8 +4,8 @@ using AiJobSearchBy.Services;
 namespace AiJobSearchBy.Portals;
 
 // FLOW: адаптер WeWorkRemotely на RSS-ленте (Access=Feed, Auth=None, карточка
-// BuiltInPortals.Core). Лента: https://weworkremotely.com/remote-jobs.rss —
-// полная (все категории, ~90 свежих), подтверждена живым зондом 2026-10-22.
+// BuiltInPortals.Core). Лента: https:// weworkremotely.com/remote-jobs.rss —
+// полная (все категории, ~90 свежих), подтверждена живым зондом.
 // Заголовок item'а в формате «Компания: Должность» — раскладываем на поля
 // честно: без «:» компания = null, title целиком.
 // Регион/категория ленты в FeedItem не переносятся (база парсит
@@ -20,16 +20,7 @@ public sealed class WwrPortal : FeedPortalBase
     {
     }
 
-    private static PortalDescriptor BuildDescriptor() => new()
-    {
-        Id = "wwr",
-        DisplayName = "WeWorkRemotely",
-        SourceClass = PortalSourceClass.Commercial,
-        Access = PortalAccessKind.Feed,
-        Auth = PortalAuthKind.None,
-        DefaultPriority = 7,
-        ApplySupported = true,
-    };
+    private static PortalDescriptor BuildDescriptor() => BuiltInPortals.CoreCard("wwr");
 
     protected override string BuildFeedUrl(string query) => FeedUrl;
 

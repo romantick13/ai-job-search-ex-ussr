@@ -1,16 +1,16 @@
 namespace AiJobSearchBy.Portals;
 
-// Канонические перечисления портального слоя: architecture.md §3.3/§5,
-// RFC-003 (DECISIONS.md). Значения хранятся в БД строкой — имена не переименовывать.
+// Канонические перечисления портального слоя: architecture.md §3.3/§5.
+// Значения хранятся в БД строкой — имена не переименовывать.
 
 // FLOW: типы-каноны портального слоя; consumed всеми адаптерами и реестром,
-//        сами никуда не обращаются — это словарь домена.
+// сами никуда не обращаются — это словарь домена.
 // LIFECYCLE: инстансов не создаёт; значения живут в PortalDescriptor.Id/Access/Auth
-//        и в отчётах PortalRunReport.
+// и в отчётах PortalRunReport.
 // STATE: неизменяемые константы — хранения состояния нет.
 // THREAD: enum потокобезопасен по определению.
 
-// SourceClass (§3.3): commercial | government | aggregator.
+// SourceClass: commercial | government | aggregator.
 public enum PortalSourceClass
 {
     Commercial,
@@ -18,7 +18,7 @@ public enum PortalSourceClass
     Aggregator,
 }
 
-// Access (§3.3): official_api | feed | scrape — определяет базовый класс адаптера
+// Access: official_api | feed | scrape — определяет базовый класс адаптера
 // (ApiPortalBase / FeedPortalBase / ScrapePortalBase).
 public enum PortalAccessKind
 {
@@ -27,7 +27,7 @@ public enum PortalAccessKind
     Scrape,
 }
 
-// Auth (§3.3): none | public_key | personal_key | oauth — определяет ветку keys-check.
+// Auth: none | public_key | personal_key | oauth — определяет ветку keys-check.
 public enum PortalAuthKind
 {
     None,
@@ -36,7 +36,7 @@ public enum PortalAuthKind
     OAuth,
 }
 
-// Вердикт прогона по порталу (architecture.md §5): отказ портала ≠ крах прогона (§7).
+// Вердикт прогона по порталу (architecture.md §5): отказ портала ≠ крах прогона.
 public enum PortalRunStatus
 {
     Ok,
@@ -47,7 +47,7 @@ public enum PortalRunStatus
     Disabled,
 }
 
-// Health-check (RFC-003 §2.1): Degraded = бейдж «портал сломан, обновление ожидается».
+// Health-check: Degraded = бейдж «портал сломан, обновление ожидается».
 public enum PortalHealthStatus
 {
     Ok,

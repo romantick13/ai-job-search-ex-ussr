@@ -6,11 +6,11 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: MainViewModel -> тесты (смоук MVVM-генераторов + гейты WP-U0)
+// FLOW: MainViewModel -> тесты (смоук MVVM-генераторов + гейты)
 // LIFECYCLE: каждый тест строит свою модель и свой tmp-каталог протокола;
 // состояния между тестами нет
-// STATE: смоук MVVM-генераторов CommunityToolkit (RFC-001 §2) —
-// [ObservableProperty] обязан поднимать PropertyChanged. WP-U0: LogFeed —
+// STATE: смоук MVVM-генераторов CommunityToolkit —
+// [ObservableProperty] обязан поднимать PropertyChanged. LogFeed —
 // история из LogService; Providers — флаги цепи из конкретных типов.
 // THREAD: однопоточно — UI-поток не нужен; живую ленту (диспетчер) тесты
 // не трогают — только историю, скопированную в конструкторе.
@@ -47,7 +47,7 @@ public class MainViewModelTests : IDisposable
     [Fact]
     public void LogFeed_History_Copied_From_LogService()
     {
-        // WP-U0: дашборд стартует с историей протокола — владелец видит не
+        // Дашборд стартует с историей протокола — пользователь видит не
         // пустой лист, а всё, что уже произошло (старт, [config], провайдеры)
         var log = new LogService(_dir, echoToConsole: false);
         log.Log("строка А");
@@ -64,11 +64,20 @@ public class MainViewModelTests : IDisposable
     public void Providers_ReflectChainState_FromConcreteTypes()
     {
         var log = new LogService(_dir, echoToConsole: false);
-        var cloudNoKey = new OpenAiCompatibleProvider(
-            log, "test-cloud", "https://example.org/v1/", requireApiKey: true);
-        var localNoKey = new OpenAiCompatibleProvider(
-            log, "test-local", "http://localhost:9/v1/", requireApiKey: false);
-        var llm7Anonymous = new Llm7Provider(log, apiKey: null, budgetFilePath: null);
+
+        // Урок: Llm7Provider(apiKey: null) читает AIJOB_LLM7_API_KEY —
+        // чужое окно ConfigServiceTests в параллельном классе (и реальный ключ
+        // машины) делало llm7 «неанонимным», карточка врала «ключ: токен».
+        // Гвард гасит переменную на время конструкторов и сериализует окно.
+        IAiChatProvider cloudNoKey, localNoKey, llm7Anonymous;
+        using (TestEnvGuard.Scope("AIJOB_LLM7_API_KEY"))
+        {
+            cloudNoKey = new OpenAiCompatibleProvider(
+                log, "test-cloud", "https://example.org/v1/", requireApiKey: true);
+            localNoKey = new OpenAiCompatibleProvider(
+                log, "test-local", "http://localhost:9/v1/", requireApiKey: false);
+            llm7Anonymous = new Llm7Provider(log, apiKey: null, budgetFilePath: null);
+        }
 
         var vm = new MainViewModel(null, new IAiChatProvider[]
         {
@@ -77,11 +86,12 @@ public class MainViewModelTests : IDisposable
 
         Assert.Equal(3, vm.Providers.Count);
 
-        // облачный без ключа: вне цепи, честная карточка
+        // встроенные звенья включены по умолчанию (чекбокс карточки);
+        // облачный без ключа — честная карточка «ключ НЕТ», проверка покажет
         Assert.Equal("test-cloud", vm.Providers[0].Name);
-        Assert.False(vm.Providers[0].InChain);
+        Assert.True(vm.Providers[0].InChain);
         Assert.False(vm.Providers[0].KeyPresent);
-        Assert.Contains("вне цепи", vm.Providers[0].KeyNote);
+        Assert.Contains("ключ НЕТ", vm.Providers[0].KeyNote);
 
         // локальный: без ключа, но в цепи
         Assert.True(vm.Providers[1].InChain);

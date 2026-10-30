@@ -3,14 +3,14 @@ using AiJobSearchBy.Services;
 
 namespace AiJobSearchBy.Portals;
 
-// FLOW: официальный JSON API (RFC-003 §2.1): BuildSearchUrl → GET → Parse.
-// Цикл «источник → fetch → нормализация → дедуп → вставка» (donor-map §2,
-// паттерн Atlas-харвестеров) переписан заново под наши домены — донорский код
-// не копируется. Одна попытка, без ретраев — владелец ретраев оркестратор
-// (канон §3.2, backoff/кулдауны персистятся на уровне WP-P1+).
-// Контракт «никаких тихих игноров» (LOG-CONTRACT.md): каждый шаг — событие
-// протокола (НИ-4); catch без записи в протокол запрещён (НИ-1).
-// THREAD: HttpClient потокобезопасен; вызовы оркестратора последовательны (§6).
+// FLOW: официальный JSON API: BuildSearchUrl → GET → Parse.
+// Цикл «источник → fetch → нормализация → дедуп → вставка» переписан заново
+// под наши домены — код
+// не копируется. Одна попытка, без ретраев — ретраи делает оркестратор
+// (канон: backoff/кулдауны персистятся на его уровне).
+// Контракт «никаких тихих игноров»: каждый шаг — событие
+// протокола; catch без записи в протокол запрещён.
+// THREAD: HttpClient потокобезопасен; вызовы оркестратора последовательны.
 public abstract class ApiPortalBase : PortalBase
 {
     protected ApiPortalBase(
@@ -21,12 +21,16 @@ public abstract class ApiPortalBase : PortalBase
     {
     }
 
+    // Официальный API отдаёт описание прямо в ответе поиска — DetailAsync
+    // не нужен (адаптеры-наследники честно бросают NotSupportedException).
+    public override bool SupportsDetail => false;
+
     // URL поиска по строке запроса (endpoint знает адаптер).
     protected abstract string BuildSearchUrl(string query);
 
     // Разбор payload → нормализованные вакансии. Битый JSON или сменившаяся
     // схема = ParseFailedException (оркестратор засчитает parse_fail; для
-    // API-порталов breaker не ведётся — канон вводит его для scrape, §2.10).
+    // API-порталов breaker не ведётся — канон вводит его для scrape).
     protected abstract Task<IReadOnlyList<JobPosting>> ParseSearchAsync(string payload, CancellationToken ct);
 
     public override async Task<IReadOnlyList<JobPosting>> SearchAsync(string query, CancellationToken ct = default)
@@ -34,31 +38,32 @@ public abstract class ApiPortalBase : PortalBase
         var url = BuildSearchUrl(query);
         Log.Log($"портал {Descriptor.Id}: поиск «{query}» → GET {url}");
 
-        using var response = await Http.GetAsync(url, ct).ConfigureAwait(false);
-
         try
         {
-            // Одна попытка: не-2xx уходит оркестратору как refused (§7), backoff
-            // по 429/503 и персист кулдауна — его зона (§2.10).
-            response.EnsureSuccessStatusCode();
-            var payload = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            // общий GET с одним ретраем (PortalBase.GetPayloadAsync):
+            // 403/429/503/сеть — пауза 4 с и вторая попытка (щиты/лимиты часто
+            // отпускают); не-2xx — человекочитаемая причина в протоколе
+            // (урок remotive 403: «почему упал,
+            // что с ним?» — видно без гаданий).
+            var payload = await GetPayloadAsync(url, $"поиск «{query}»", ct).ConfigureAwait(false);
             var items = await ParseSearchAsync(payload, ct).ConfigureAwait(false);
             Log.LogSuccess($"портал {Descriptor.Id}: поиск отработал — вакансий: {items.Count}");
             return items;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // НИ-1/НИ-2: отмена пользователем — осознанный пропуск, не ошибка.
+            // /отмена пользователем — осознанный пропуск, не ошибка.
             Log.LogWarn($"skip: портал {Descriptor.Id} — поиск «{query}» отменён пользователем (ct)");
             throw;
         }
         catch (Exception ex)
         {
-            // НИ-1: что делали / что поймали / что решили. Таймаут
+            // что делали / что поймали / что решили. Таймаут
             // (TaskCanceledException без отмены ct) и сетевые ошибки — тоже сюда:
-            // причина в протоколе, решение (refused/parse_fail) — за оркестратором.
+            // причина в протоколе, решение — человеческое (прогон продолжается).
             Log.LogError($"портал {Descriptor.Id}: поиск «{query}» упал — "
-                + $"{ex.GetType().Name}: {ex.Message}; решение: наверх (оркестратор решит refused/parse_fail)");
+                + $"{ex.GetType().Name}: {ex.Message}; решение: этот портал пропускаю, "
+                + "поиск продолжается по остальным сайтам — вернись к нему в следующем прогоне");
             throw;
         }
     }

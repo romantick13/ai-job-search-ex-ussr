@@ -12,7 +12,7 @@ using Xunit;
 namespace AiJobSearchBy.Tests.Ai;
 
 // ============================================================================
-// [НАШЕ] Тесты Llm7Provider: разбор ответа, анонимный режим, 429 → Busy
+// Тесты Llm7Provider: разбор ответа, анонимный режим, 429 → Busy
 // (фолбэк цепи), прочие HTTP-сбои кричат, локальный бюджетный регистр
 // (исчерпание до запроса + персистентность между процессами).
 // ============================================================================
@@ -66,8 +66,8 @@ public sealed class Llm7ProviderTests : IDisposable
     [Fact]
     public void DefaultModel_Is_Live_Turbo_Model()
     {
-        // Гейт ротации дефолта (урок 2026-10-21: DeepSeek-V4-Flash-0731 протух
-        // между снятием каталога и живым прогоном; владелец обходил через
+        // Гейт ротации дефолта (урок: DeepSeek-V4-Flash-0731 протух
+        // между снятием каталога и живым прогоном; обходили через
         // AIJOB_LLM7_MODEL=gpt-oss:20b). Если модель снова ротанёт — тест
         // падает громко, дефолт правим осознанно, не молча.
         Assert.Equal("gpt-oss:20b", Llm7Provider.DefaultModel);
@@ -78,7 +78,15 @@ public sealed class Llm7ProviderTests : IDisposable
     {
         var h = new StubHandler(_ => Ok(ChatBody));
         var log = Log();
-        var p = new Llm7Provider(log, Http(h), apiKey: null, budgetFilePath: null);
+
+        // Урок: конструктор с apiKey: null читает AIJOB_LLM7_API_KEY —
+        // окно ConfigServiceTests (параллельный класс) и реальный ключ машины
+        // ломали анонимность. Гвард гасит переменную на время конструктора.
+        Llm7Provider p;
+        using (TestEnvGuard.Scope("AIJOB_LLM7_API_KEY"))
+        {
+            p = new Llm7Provider(log, Http(h), apiKey: null, budgetFilePath: null);
+        }
 
         Assert.True(p.IsAnonymous);
         Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("\u26A0") && x.Contains("AIJOB_LLM7_API_KEY"));
@@ -161,8 +169,8 @@ public sealed class Llm7ProviderTests : IDisposable
     [Fact]
     public async Task Probe_Models_Reports_Catalog_And_Missing_Model()
     {
-        // Фикстура = снимок живого каталога 2026-10-21; gpt-oss:20b обязан быть:
-        // это дефолт (гейт DefaultModel_Is_Live_Turbo_Model), проба ищет его первой
+// Фикстура = снимок живого каталога; gpt-oss:20b обязан быть:
+// это дефолт (гейт DefaultModel_Is_Live_Turbo_Model), проба ищет его первой
         var body = """
             {"object":"list","data":[{"id":"DeepSeek-V4-Flash-0731","tier":"turbo"},{"id":"glm-5.3-flash","tier":"turbo"},{"id":"gpt-oss:20b","tier":"turbo"},{"id":"gpt-5.4","tier":"pro"}]}
             """;
@@ -180,7 +188,7 @@ public sealed class Llm7ProviderTests : IDisposable
         Assert.Contains(log.Logs.Cast<string>(), x => x.Contains("\u274C") && x.Contains("нет в каталоге"));
     }
 
-    /// <summary>Фейковый обработчик: без сети, фиксирует запросы.</summary>
+    // / <summary>Фейковый обработчик: без сети, фиксирует запросы.</summary>
     private sealed class StubHandler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;

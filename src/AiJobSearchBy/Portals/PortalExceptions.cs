@@ -1,10 +1,10 @@
 namespace AiJobSearchBy.Portals;
 
-// FLOW: типизированные ошибки портального слоя. Оркестратор (WP-P1+) отображает
+// FLOW: типизированные ошибки портального слоя. Оркестратор (+) отображает
 // их на PortalRunStatus (architecture.md §5/§7): отказ портала ≠ крах прогона.
 
 // Падение парсинга (сайт сменил вёрстку, битый payload) — вход счётчика breaker
-// (RFC-003 §2.10: авто-выключение scrape-портала после N подряд падений).
+// (авто-выключение scrape-портала после N подряд падений).
 public sealed class ParseFailedException : Exception
 {
     public ParseFailedException(string message, Exception? inner = null)

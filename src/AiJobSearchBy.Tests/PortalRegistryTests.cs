@@ -3,7 +3,7 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: гейты PortalRegistry (architecture.md §3.3, RFC-003 §2.2): конфиг
+// FLOW: гейты PortalRegistry (architecture.md §3.3): конфиг
 // сильнее приоритетов, хвост — по DefaultPriority, disabled вне цепи,
 // снапшот изолирован между вызовами.
 public class PortalRegistryTests
@@ -97,7 +97,7 @@ public class PortalRegistryTests
     [Fact]
     public void ResolveChain_ReturnsIndependentSnapshot()
     {
-        // §3.3: снапшот порядка фиксируется на старте прогона; правки
+        // Снапшот порядка фиксируется на старте прогона; правки
         // «посреди прогона» (в тесте — мутация выданного списка) не должны
         // трогать следующие вызовы реестра.
         var registry = CreateRegistry(new FakePortal("a", 2), new FakePortal("b", 3));
@@ -125,7 +125,7 @@ public class PortalRegistryTests
     }
 }
 
-// WP-P1 (PLAN §7): выключатель карточки DefaultEnabled — зеркало
+// Выключатель карточки DefaultEnabled — зеркало
 // default_enabled registry.json; конфиг сильнее дефолта.
 public class PortalRegistryDefaultEnabledTests
 {
@@ -183,7 +183,7 @@ public class PortalRegistryDefaultEnabledTests
     public void Portals_Listing_IncludesDefaultDisabledPortals()
     {
         // Вне цепи ≠ выкинут из реестра: keys-check/UI видят портал
-        // с причиной, отчёт прогона сможет пометить disabled (§5).
+        // с причиной, отчёт прогона сможет пометить disabled.
         var registry = new PortalRegistry(
         [
             new FakePortal("core", 8),

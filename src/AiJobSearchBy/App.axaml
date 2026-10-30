@@ -3,10 +3,34 @@
              x:Class="AiJobSearchBy.App"
              RequestedThemeVariant="Dark">
 
-  <!-- Канон UI: Fluent (RFC-001 §2); TabControl запрещён (architecture.md §4).
-     WP-U0: Dark — под стиль Emerald Crystal донора UniD (glassmorphism.txt). -->
+ <!-- Канон UI: Fluent (§2); TabControl запрещён (architecture.md §4).
+ Dark — под стиль Emerald Crystal UniD (glassmorphism.txt). -->
   <Application.Styles>
     <FluentTheme />
   </Application.Styles>
+
+ <!-- Правка («синяя менюшка — фу»): дефолтный акцент
+ Fluent — синий, им красятся .accent-кнопки (модалка lm-studio),
+ чекбоксы цепи/сайтов, рамки фокуса и выделение. Палитра Emerald
+ Crystal: стеклу #E61A2E26 / #0A1A14 отвечает изумруд #2FA36B,
+ тёмные ступени — ховеры/нажатия, светлые — фокус-рамки на тёмном.
+ Перекрывает ресурсы темы (Application.Resources старше Styles). -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <Color x:Key="SystemAccentColor">#2FA36B</Color>
+      <Color x:Key="SystemAccentColorDark1">#26855A</Color>
+      <Color x:Key="SystemAccentColorDark2">#1E6A48</Color>
+      <Color x:Key="SystemAccentColorDark3">#164F36</Color>
+      <Color x:Key="SystemAccentColorLight1">#5FC492</Color>
+      <Color x:Key="SystemAccentColorLight2">#8ADDB4</Color>
+      <Color x:Key="SystemAccentColorLight3">#B8F0D4</Color>
+    </ResourceDictionary>
+  </Application.Resources>
+
+ <!-- .1: иконка
+ трея ставится КОДОМ в App.axaml.cs (SetupTrayIcon): <TrayIcon.Icons>
+ в XAML окна 12.1.1 не компилится (AVLN2000), а на Application NRE-ится
+ в populate до готовности платформенного сервиса трея. Источник —
+ Assets/app.ico (таскбар — Icon окна, exe — ApplicationIcon из csproj). -->
 
 </Application>

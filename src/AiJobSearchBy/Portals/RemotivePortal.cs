@@ -6,10 +6,10 @@ namespace AiJobSearchBy.Portals;
 
 // FLOW: адаптер Remotive на публичном JSON API (Access=OfficialApi, Auth=None,
 // карточка BuiltInPortals.Core). Поиск серверный: GET /api/remote-jobs
-// ?search={query}&limit=50 — параметры подтверждены живым зондом 2026-10-22.
+// ?search={query}&limit=50 — параметры подтверждены живым зондом.
 // Схема: {jobs: [{id, url, title, company_name, candidate_required_location,
 // salary, publication_date, description, ...}]} (golden-фикстура в тестах).
-// THREAD: HttpClient потокобезопасен; вызовы оркестратора последовательны (§6).
+// THREAD: HttpClient потокобезопасен; вызовы оркестратора последовательны.
 public sealed class RemotivePortal : ApiPortalBase
 {
     private const string SearchEndpoint = "https://remotive.com/api/remote-jobs";
@@ -19,28 +19,23 @@ public sealed class RemotivePortal : ApiPortalBase
     {
     }
 
-    private static PortalDescriptor BuildDescriptor() => new()
-    {
-        Id = "remotive",
-        DisplayName = "Remotive",
-        SourceClass = PortalSourceClass.Commercial,
-        Access = PortalAccessKind.OfficialApi,
-        Auth = PortalAuthKind.None,
-        DefaultPriority = 8,
-        ApplySupported = true,
-    };
+    private static PortalDescriptor BuildDescriptor() => BuiltInPortals.CoreCard("remotive");
 
+    // «*» (маркер «каталог целиком») считается пустым запросом —
+    // search=%2A не уходит (единообразно с jobicy; remotive такое терпит,
+    // но лишний параметр — лишний повод для WAF-щита).
     protected override string BuildSearchUrl(string query)
-        => string.IsNullOrWhiteSpace(query)
+        => string.IsNullOrWhiteSpace(query) || query.Trim() == "*"
             ? $"{SearchEndpoint}?limit=50"
             : $"{SearchEndpoint}?search={Uri.EscapeDataString(query)}&limit=50";
 
-    // Детальная карточка — следующий WP (оркестратор): SearchAsync уже несёт
+    // Детальная карточка — задача оркестратора: SearchAsync уже несёт
     // описание вакансии, честный отказ вместо выдуманной реализации.
+    // (SupportsDetail=false наследуется от ApiPortalBase.)
     public override Task<JobPosting> DetailAsync(
         string idOrUrl, CancellationToken ct = default)
         => throw new NotSupportedException(
-            "детальная карточка remotive придёт с оркестратором (WP-P2); "
+            "детальная карточка remotive придёт с оркестратором; "
             + "SearchAsync уже возвращает описание вакансии");
 
     protected override Task<IReadOnlyList<JobPosting>> ParseSearchAsync(
@@ -57,7 +52,7 @@ public sealed class RemotivePortal : ApiPortalBase
         var result = new List<JobPosting>();
         foreach (var item in jobs.EnumerateArray())
         {
-            // url обязателен (canonical_url NOT NULL схемы §4); его отсутствие
+            // url обязателен (canonical_url NOT NULL схемы базы); его отсутствие
             // = смена схемы — ParseFailedException (как у hh-by).
             if (!item.TryGetProperty("url", out var urlEl)
                 || urlEl.GetString() is not { Length: > 0 } canonicalUrl)

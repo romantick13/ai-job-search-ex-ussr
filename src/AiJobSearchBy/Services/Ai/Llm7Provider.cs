@@ -14,27 +14,27 @@ using AiJobSearchBy.Services;
 namespace AiJobSearchBy.Services.Ai;
 
 // ============================================================================
-// [НАШЕ] Llm7Provider — третий провайдер продуктовой цепи (решение владельца,
-// 2026-10-21). База: https://api.llm7.io/v1/ (OpenAI-совместимый).
-//
-// Лимиты free-токена (docs.llm7.io/limits, снято 2026-10-21):
-//   1 req/сек, 60 req/мин, 250 req/час, 100 000 токенов/24ч (вход+выход).
-//   Дословно: «Free-token quotas ... may be reduced without notice» —
-//   осенью 2026 дневную квоту уже резали в 10 раз (1M → 100K, GitHub issue).
-//   Поэтому: капа консервативна, расход считает локальный регистр
-//   (AiBudgetLedger), 429/402 = фолбэк цепи, а не ошибка.
-//
-// Анонимный доступ: подтверждён живым тестом 2026-10-21 (chat/completions с
+// Llm7Provider — третий провайдер продуктовой цепи.
+// База: https:// api.llm7.io/v1/ (OpenAI-совместимый).
+
+// Лимиты free-токена (docs.llm7.io/limits, снято с доков):
+// 1 req/сек, 60 req/мин, 250 req/час, 100 000 токенов/24ч (вход+выход).
+// Дословно: «Free-token quotas ... may be reduced without notice» —
+// осенью 2026 дневную квоту уже резали в 10 раз (1M → 100K, GitHub issue).
+// Поэтому: капа консервативна, расход считает локальный регистр
+// (AiBudgetLedger), 429/402 = фолбэк цепи, а не ошибка.
+
+// Анонимный доступ: подтверждён живым тестом (chat/completions с
 // ключом-заглушкой 'unused' отвечает, ~76 ток списался с анонимной квоты;
-// itsfree.ai, AgentDeals) — но лимиты ниже, WARN обязателен (НИ-2).
-//
+// itsfree.ai, AgentDeals) — но лимиты ниже, WARN обязателен.
+
 // Эндпоинта остатка квоты в доках НЕТ (в отличие от OrcaRouter
 // GET /api/free-package/public) → остаток = локальный регистр по факту
 // списаний. Каталог моделей ротируется — на старте проба GET /v1/models
 // (docs.llm7.io/guides/models-api, tier=turbo — доступно free-токену).
-//
+
 // Конфиг: AIJOB_LLM7_API_KEY (пусто → анонимно), AIJOB_LLM7_MODEL
-// (дефолт gpt-oss:20b: живой прогон владельца 2026-10-21 — прежний дефолт
+// (дефолт gpt-oss:20b: живой — прежний дефолт
 // DeepSeek-V4-Flash-0731 к моменту запроса из каталога РОТИРОВАЛСЯ,
 // gpt-oss:20b turbo-тира отработал; каталог ротируется, проба на старте
 // громко ловит ротации).
@@ -43,9 +43,9 @@ namespace AiJobSearchBy.Services.Ai;
 public sealed class Llm7Provider : IAiChatProvider
 {
     public const string DefaultBaseUrl = "https://api.llm7.io/v1/";
-    // Живой каталог turbo-тира снят GET /v1/models 2026-10-21: codestral-latest,
+    // Живой каталог turbo-тира снят GET /v1/models: codestral-latest,
     // gpt-oss:20b, minimax-m2.7, mistral-Nemo-Instruct-2407, nemotron-3-nano:30b
-    // (DeepSeek-V4-Flash-0731 в момент живого прогона владельца из каталога
+    // (DeepSeek-V4-Flash-0731 в момент живого прогона из каталога
     // исчез — прежний дефолт протух, гейт: тест DefaultModel_Is_Live_Turbo_Model).
     // Каталог РОТИРУЕТСЯ (gpt-oss-120b/gemma из списка itsfree.ai в каталоге
     // уже нет) — потому ProbeModelsAsync на старте и громкая ошибка при
@@ -55,9 +55,12 @@ public sealed class Llm7Provider : IAiChatProvider
     public const string AnonymousKey = "unused"; // ключ-заглушка анонимного доступа
 
     public string Name => "llm7";
-    // WP-U0: модель для карточки дашборда (морда вчерне); IAiChatProvider
+    // модель для карточки дашборда (морда вчерне); IAiChatProvider
     // сознательно не расширяли — сурфейс только у конкретных типов.
     public string Model => _model;
+
+    // «Проверить всех»: фактический адрес для пробы GET {base}models.
+    public string BaseLabel => _baseLabel;
     // Turbo-тир — модели средней величины: для писем достаточно, для резюме — фолбэк.
     public int QualityRank => 3;
 
@@ -71,7 +74,7 @@ public sealed class Llm7Provider : IAiChatProvider
     public bool IsAnonymous { get; }
 
     // LIFECYCLE: синглтон DI; свой HttpClient (base api.llm7.io/v1/, таймаут 60с); регистр бюджета
-    //        персистится в state/llm7-budget.json (см. CompositionRoot)
+    // персистится в state/llm7-budget.json (см. CompositionRoot)
     // STATE: AiBudgetLedger — сутки/потрачено (ротация в полночь); IsAnonymous — по AIJOB_LLM7_API_KEY
     // THREAD: AiBudgetLedger под _gate; HttpClient потокобезопасен; вызовы с любого потока
     public Llm7Provider(
@@ -103,7 +106,7 @@ public sealed class Llm7Provider : IAiChatProvider
 
         if (IsAnonymous)
         {
-            // НИ-2: анонимный режим — осознанный режим с ограничениями, кричим.
+            // анонимный режим — осознанный режим с ограничениями, кричим.
             _log.LogWarn("skip: llm7 без токена — причина: AIJOB_LLM7_API_KEY не задан, " +
                          "работаем анонимно с заглушкой 'unused' (работает, но лимиты ниже); " +
                          "решение: бесплатный токен выдаёт dash.llm7.io");
@@ -119,7 +122,7 @@ public sealed class Llm7Provider : IAiChatProvider
     public long? RemainingDailyTokens() => _ledger.Remaining;
 
     // FLOW: регистр исчерпан? -> фейл-фаст Busy (без HTTP); payload chat/completions -> 429/402 = Busy
-    //        (фолбэк цепи), прочие не-2xx = исключение наружу; usage -> регистр -> AiChatResult
+    // (фолбэк цепи), прочие не-2xx = исключение наружу; usage -> регистр -> AiChatResult
     // STATE: расход списывается в _ledger под её _gate; мутируемого у провайдера больше нет
     public async Task<AiChatResult> CompleteAsync(AiChatRequest request, CancellationToken ct = default)
     {
@@ -159,7 +162,7 @@ public sealed class Llm7Provider : IAiChatProvider
         }
         catch (HttpRequestException ex)
         {
-            // НИ-1: что делали / что поймали / что решили.
+            // что делали / что поймали / что решили.
             _log.LogError($"[llm7] сеть недоступна: {ex.Message}; решение: исключение наружу — цепь решает");
             throw;
         }
@@ -179,7 +182,7 @@ public sealed class Llm7Provider : IAiChatProvider
                 var ra = resp.Headers.RetryAfter?.Delta is { } d
                     ? $" (Retry-After: {(int)d.TotalSeconds}с)" : "";
                 var msg = $"HTTP {(int)resp.StatusCode}{ra} — лимит/бюджет исчерпан на стороне llm7";
-                // 429/402 — не сбой, а сигнал фолбэка: осознанный skip с причиной (НИ-2).
+                // 429/402 — не сбой, а сигнал фолбэка: осознанный skip с причиной .
                 _log.LogWarn($"skip: llm7 отклонил запрос — {msg}; тело: {shortBody}; " +
                              "решение: фолбэк к следующему провайдеру цепи");
                 throw new AiProviderBusyException(msg);
@@ -220,19 +223,30 @@ public sealed class Llm7Provider : IAiChatProvider
 
         _ledger.Add(pTok + cTok);
         sw.Stop();
+
+        // Пустой content при потраченных токенах — сбой ступени, не
+        // результат: сохранять пустоту в окно/PDF/историю нельзя. Честно:
+        // LogError + BusyException — цепь перебирает следующих.
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            _log.LogError($"[llm7] пустой текст ответа: {pTok + cTok} ток (вх {pTok} / вых {cTok}); " +
+                          $"тело: {shortBody}; решение: ступень пропускается — цепь перебирает следующих");
+            throw new AiProviderBusyException("llm7: пустой content (ответ без текста)");
+        }
+
         _log.LogSuccess($"[llm7] OK: {pTok + cTok} ток (вх {pTok} / вых {cTok}{(estimated ? ", оценка" : "")}) " +
                         $"за {sw.Elapsed.TotalSeconds:F1}с; остаток дня: {_ledger.Remaining:N0} ток");
         return new AiChatResult(content, _model, new AiChatUsage(pTok, cTok), Name, sw.Elapsed);
     }
 
-    /// <summary>
-    /// [НАШЕ] Проба каталога на старте: GET /v1/models. Каталог ротируется
-    /// (awesome-free-llm-apis); если нашей модели нет — громкая ошибка в
-    /// протокол. Падение пробы не роняет старт (вспомогательная, НИ-1/НИ-3).
-    /// Возвращает true, если модель найдена в каталоге.
-    /// </summary>
+    // / <summary>
+    // / Проба каталога на старте: GET /v1/models. Каталог ротируется
+    // / (awesome-free-llm-apis); если нашей модели нет — громкая ошибка в
+    // / протокол. Падение пробы не роняет старт (вспомогательная проба).
+    // / Возвращает true, если модель найдена в каталоге.
+    // / </summary>
     // FLOW: старт цепи: GET models -> каталог в протокол (turbo-тир) -> модель в каталоге?;
-    //        падение пробы = WARN, не краш (НИ-3)
+    // падение пробы = WARN, не краш
     public async Task<bool> ProbeModelsAsync(CancellationToken ct = default)
     {
         try
@@ -274,11 +288,11 @@ public sealed class Llm7Provider : IAiChatProvider
 }
 
 // ============================================================================
-// [НАШЕ] AiBudgetLedger — локальный регистр дневного бюджета llm7.
+// AiBudgetLedger — локальный регистр дневного бюджета llm7.
 // CLI живёт одним процессом на прогон: без файла остаток теряется между
 // прогонами и бюджет «на бумаге» не совпадёт с серверным → персистим JSON
 // рядом с дисковым протоколом (рекомендация: <профиль>/ai-job-search-by/
-// state/llm7-budget.json). Любой сбой файла кричит (НИ-1) и не роняет (НИ-3).
+// state/llm7-budget.json). Любой сбой файла кричит и не роняет процесс.
 // Капа фиксируется на старте; внезапное урезание квоты сервером ловится
 // обработкой 429 в провайдере (фолбэк цепи) — двойная страховка.
 // ============================================================================
@@ -320,7 +334,7 @@ public sealed class AiBudgetLedger
     private void RollDay()
     {
         var today = DateTime.Now.Date;
-        if (today != Day) { Day = today; UsedToday = 0; } // ротация суток — как в К1
+        if (today != Day) { Day = today; UsedToday = 0; } // ротация суток леджера лимитов
     }
 
     private void Load()
@@ -333,7 +347,7 @@ public sealed class AiBudgetLedger
             var date = doc.RootElement.GetProperty("date").GetString();
             var used = doc.RootElement.GetProperty("usedTokens").GetInt64();
             if (date == DateTime.Now.Date.ToString("yyyy-MM-dd")) UsedToday = used;
-            // Иначе файл вчерашний — начинаем сутки с нуля (RollDay дал бы то же).
+        // Иначе файл вчерашний — начинаем сутки с нуля (RollDay дал бы то же).
         }
         catch (Exception ex)
         {

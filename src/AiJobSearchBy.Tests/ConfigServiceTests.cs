@@ -4,11 +4,12 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// WP-CONFIG: юнит-гейты ConfigService — создание из шаблона, сохранение
+// юнит-гейты ConfigService — создание из шаблона, сохранение
 // ключей при merge, бэкап битого файла, лестница env -> local.json,
 // ловец опечаток, Portals.* через шов ILocalSecrets. Каталог — временный
-// на каждый тест (baseDirOverride); env AIJOB_* в tested-переменных
-// принудительно гасится в finally — тест не зависит от машины.
+// на каждый тест (baseDirOverride); env AIJOB_* в tested-переменных гасится
+// на время теста; окно AIJOB_LLM7_API_KEY — под гвардом TestEnvGuard (урок:
+// параллельные классы ловили это окно конструктором Llm7Provider).
 public class ConfigServiceTests : IDisposable
 {
     private readonly string _dir;
@@ -45,9 +46,12 @@ public class ConfigServiceTests : IDisposable
         Assert.NotNull(root["Ai"]!["Llm7"]!["ApiKey"]);
         Assert.NotNull(root["Ai"]!["ModelScope"]!["ApiKey"]);
         Assert.NotNull(root["Ai"]!["SiliconFlow"]!["ApiKey"]);
-        // WP-U2: секция локального эмбеддера (BaseUrl/Model вместо ключа).
-        Assert.NotNull(root["Ai"]!["Embeddings"]!["BaseUrl"]);
-        Assert.NotNull(root["Ai"]!["Embeddings"]!["Model"]);
+        // Решение: OpenRouter/OrcaRouter вернулись в цепь.
+        Assert.NotNull(root["Ai"]!["OpenRouter"]!["ApiKey"]);
+        Assert.NotNull(root["Ai"]!["OrcaRouter"]!["ApiKey"]);
+        // r21: секция Ai.Embeddings вырезана вместе с векторизацией.
+        // секция кастомных звеньев цепи.
+        Assert.NotNull(root["Chain"]!["Custom"]);
         Assert.NotNull(root["Portals"]);
     }
 
@@ -60,13 +64,16 @@ public class ConfigServiceTests : IDisposable
         var svc = ConfigService.LoadOrCreate(_log, _dir);
 
         Assert.False(svc.WasCreated);
-        // Шаблон добавляет ровно три недостающих поля; Llm7 и Portals не тронуты.
-        // (WP-U2: секция Ai.Jina выбыла — вместо неё Ai.Embeddings.)
-        Assert.Equal(new[] { "Ai.ModelScope", "Ai.SiliconFlow", "Ai.Embeddings" }, svc.AddedFields);
+        // Шаблон добавляет недостающие поля; Llm7 и Portals не тронуты.
+        // (секция Ai.Jina выбыла. Долились секции ключей и Chain —
+        // кастомные звенья цепи, целиком, без рекурсии внутрь: пустой массив
+        // Custom клонируется как есть. Долились Ai.OpenRouter и
+        // Ai.OrcaRouter — вернулись в дефолтную цепь. r21: Ai.Embeddings
+        // вырезана вместе с векторизацией и больше не доливается.)
+        Assert.Equal(new[] { "Ai.ModelScope", "Ai.SiliconFlow", "Ai.OpenRouter", "Ai.OrcaRouter", "Chain" }, svc.AddedFields);
 
         var text = File.ReadAllText(svc.FilePath);
         Assert.Contains("tok-old-1234567890", text); // ключ юзера сохранён
-        Assert.Contains("\"Embeddings\"", text);    // новое поле долилось
         Assert.Contains("схема дополнена", JoinLogs());
     }
 
@@ -91,9 +98,14 @@ public class ConfigServiceTests : IDisposable
         File.WriteAllText(ConfigPath,
             "{\"version\":1,\"Ai\":{\"Llm7\":{\"ApiKey\":\"file-key-1234567890\"}},\"Portals\":{}}");
         // Кривая вставка из cmd: set VAR="..." кладёт кавычки в значение.
-        Environment.SetEnvironmentVariable("AIJOB_LLM7_API_KEY", "\"env-key-1234567890\"");
-        try
+        // Урок: окно переменной — под гвардом: раньше finally гасил
+        // её в null, а xUnit в это окно загонял параллельные классы (конструктор
+        // Llm7Provider(apiKey: null) ловил чужой ключ). Гвард сериализует окно
+        // и возвращает переменную машины как была.
+        using (TestEnvGuard.Scope("AIJOB_LLM7_API_KEY"))
         {
+            Environment.SetEnvironmentVariable("AIJOB_LLM7_API_KEY", "\"env-key-1234567890\"");
+
             var svc = ConfigService.LoadOrCreate(_log, _dir);
             var (value, source) = svc.ResolveAiKey("Llm7", "AIJOB_LLM7_API_KEY");
 
@@ -102,10 +114,6 @@ public class ConfigServiceTests : IDisposable
             Assert.True(JoinLogs().Contains("вставки"),
                 "WARN про мусор не найден; лог:\n" + JoinLogs());   // WARN про мусор
             Assert.Contains("env…890", JoinLogs());             // маска показывает кавычку
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("AIJOB_LLM7_API_KEY", null);
         }
     }
 
@@ -162,66 +170,5 @@ public class ConfigServiceTests : IDisposable
         Assert.Contains("Portals.hirify", JoinLogs());
     }
 
-    [Fact]
-    public void ResolveEmbeddings_FallsToDefaults_WithLog()
-    {
-        // WP-U2: ничего не задано — дефолт Ollama + qwen3-embedding:0.6b.
-        Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_BASE_URL", null);
-        Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_MODEL", null);
-
-        var svc = ConfigService.LoadOrCreate(_log, _dir);
-        var (baseUrl, model) = svc.ResolveEmbeddings(
-            "AIJOB_EMBEDDINGS_BASE_URL", "AIJOB_EMBEDDINGS_MODEL");
-
-        Assert.Equal(Services.Ai.LocalEmbeddingService.DefaultBaseUrl, baseUrl);
-        Assert.Equal(Services.Ai.LocalEmbeddingService.DefaultModel, model);
-        Assert.Contains("[config] эмбеддер:", JoinLogs());
-    }
-
-    [Fact]
-    public void ResolveEmbeddings_FileThenEnvWins()
-    {
-        Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_BASE_URL", null);
-        Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_MODEL", null);
-        try
-        {
-            // 1) Значения из окна настроек (UpdateEmbeddings) читаются при перезагрузке.
-            var writer = ConfigService.LoadOrCreate(_log, _dir);
-            writer.UpdateEmbeddings("http://127.0.0.1:1234/v1", "qwen3-embedding:0.6b");
-            var svc = ConfigService.LoadOrCreate(_log, _dir);
-            var (baseUrl, model) = svc.ResolveEmbeddings(
-                "AIJOB_EMBEDDINGS_BASE_URL", "AIJOB_EMBEDDINGS_MODEL");
-            Assert.Equal("http://127.0.0.1:1234/v1", baseUrl);
-            Assert.Equal("qwen3-embedding:0.6b", model);
-
-            // 2) env — override поверх файла (RFC-004 §3).
-            Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_BASE_URL", "http://127.0.0.1:8080/v1");
-            var (envUrl, _) = svc.ResolveEmbeddings(
-                "AIJOB_EMBEDDINGS_BASE_URL", "AIJOB_EMBEDDINGS_MODEL");
-            Assert.Equal("http://127.0.0.1:8080/v1", envUrl);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_BASE_URL", null);
-            Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_MODEL", null);
-        }
-    }
-
-    [Fact]
-    public void UpdateEmbeddings_EmptyValue_FallsBackToDefaults()
-    {
-        Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_BASE_URL", null);
-        Environment.SetEnvironmentVariable("AIJOB_EMBEDDINGS_MODEL", null);
-        var writer = ConfigService.LoadOrCreate(_log, _dir);
-        writer.UpdateEmbeddings("http://127.0.0.1:9999/v1", "старая-модель");
-
-        // Очистка полей в окне настроек = «вернуть дефолт».
-        writer.UpdateEmbeddings("  ", "");
-        var reloaded = ConfigService.LoadOrCreate(_log, _dir);
-        var (baseUrl, model) = reloaded.ResolveEmbeddings(
-            "AIJOB_EMBEDDINGS_BASE_URL", "AIJOB_EMBEDDINGS_MODEL");
-
-        Assert.Equal(Services.Ai.LocalEmbeddingService.DefaultBaseUrl, baseUrl);
-        Assert.Equal(Services.Ai.LocalEmbeddingService.DefaultModel, model);
-    }
+    // r21: ResolveEmbeddings_*/UpdateEmbeddings_* вырезаны вместе с векторизацией.
 }

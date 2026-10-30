@@ -7,12 +7,12 @@ namespace AiJobSearchBy.Portals;
 // FLOW: адаптер RemoteOK на публичном JSON API (Access=OfficialApi, Auth=None,
 // карточка BuiltInPortals.Core). API не принимает поисковых параметров — отдаёт
 // свежий каталог (~100 записей); отбор по запросу делается на нашей стороне
-// (title/company/tags, OrdinalIgnoreCase) и логируется фактом «отобрано M из N»
-// (НИ-4). Первый элемент массива — мета-запись API (legal/last_updated), без
-// position — пропускается осознанно, не молча (НИ-2).
+// (title/company/tags, OrdinalIgnoreCase) и логируется фактом «отобрано M из N».
+// Первый элемент массива — мета-запись API (legal/last_updated), без
+// position — пропускается осознанно, не молча.
 // Вежливость: лимит 50 вакансий за прогон (константа ниже) — каталог больше,
-// но харвестер не жадничает (RFC-003 §2.10).
-// THREAD: HttpClient потокобезопасен; вызовы оркестратора последовательны (§6).
+// но харвестер не жадничает.
+// THREAD: HttpClient потокобезопасен; вызовы оркестратора последовательны.
 public sealed class RemoteOkPortal : ApiPortalBase
 {
     private const string SearchEndpoint = "https://remoteok.com/api";
@@ -23,25 +23,17 @@ public sealed class RemoteOkPortal : ApiPortalBase
     {
     }
 
-    private static PortalDescriptor BuildDescriptor() => new()
-    {
-        Id = "remoteok",
-        DisplayName = "RemoteOK",
-        SourceClass = PortalSourceClass.Commercial,
-        Access = PortalAccessKind.OfficialApi,
-        Auth = PortalAuthKind.None,
-        DefaultPriority = 8,
-        ApplySupported = true,
-    };
+    private static PortalDescriptor BuildDescriptor() => BuiltInPortals.CoreCard("remoteok");
 
     protected override string BuildSearchUrl(string query) => SearchEndpoint;
 
-    // Детальная карточка — следующий WP (оркестратор): SearchAsync уже несёт
+    // Детальная карточка — задача оркестратора: SearchAsync уже несёт
     // описание вакансии, честный отказ вместо выдуманной реализации.
+    // (SupportsDetail=false наследуется от ApiPortalBase.)
     public override Task<JobPosting> DetailAsync(
         string idOrUrl, CancellationToken ct = default)
         => throw new NotSupportedException(
-            "детальная карточка remoteok придёт с оркестратором (WP-P2); "
+            "детальная карточка remoteok придёт с оркестратором; "
             + "SearchAsync уже возвращает описание вакансии");
 
     protected override Task<IReadOnlyList<JobPosting>> ParseSearchAsync(
@@ -58,7 +50,7 @@ public sealed class RemoteOkPortal : ApiPortalBase
         foreach (var item in json.RootElement.EnumerateArray())
         {
             // Мета-записи API (legal/last_updated) и битые элементы — осознанный
-            // пропуск; url обязателен (canonical_url NOT NULL схемы §4).
+            // пропуск; url обязателен (canonical_url NOT NULL схемы базы).
             if (item.ValueKind != JsonValueKind.Object
                 || !item.TryGetProperty("position", out var position)
                 || position.GetString() is not { Length: > 0 } title

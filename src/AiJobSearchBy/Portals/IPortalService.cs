@@ -2,9 +2,9 @@ using AiJobSearchBy.Models;
 
 namespace AiJobSearchBy.Portals;
 
-// FLOW: контракт портала (architecture.md §3.3, RFC-003 §2.1). Реализации —
+// FLOW: контракт портала (architecture.md §3.3). Реализации —
 // адаптеры на одном из четырёх базовых классов (Api/Feed/Scrape/Government);
-// ScrapeOrchestrator (WP-P1+) обходит их строго последовательно по снапшоту
+// ScrapeOrchestrator (+) обходит их строго последовательно по снапшоту
 // порядка, отказ одного портала ≠ крах прогона (architecture.md §7).
 public interface IPortalService
 {
@@ -17,8 +17,14 @@ public interface IPortalService
     // Карточка вакансии по id/URL → нормализованный JobPosting.
     Task<JobPosting> DetailAsync(string idOrUrl, CancellationToken ct = default);
 
-    // Канареечный health-check (RFC-003 §2.1): golden-фикстура разметки в тестах,
-    // провал → Degraded + бейдж «портал сломан, обновление ожидается» (§2.1).
+    // r20: умеет ли адаптер доставать ПОЛНЫЙ текст вакансии со страницы
+    // вакансии (DetailAsync). false — у лент/API (описание приходит прямо в
+    // ответе поиска); true — у scrape-порталов (hh-группа). Кнопка
+    // «Адаптировать» ходит в страницу вакансии только по true.
+    bool SupportsDetail => true;
+
+    // Канареечный health-check: golden-фикстура разметки в тестах,
+    // провал → Degraded + бейдж «портал сломан, обновление ожидается».
     Task<PortalHealthReport> HealthCheckAsync(CancellationToken ct = default);
 }
 

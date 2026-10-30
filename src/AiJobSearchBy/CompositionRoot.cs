@@ -4,20 +4,20 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AiJobSearchBy;
 
 // FLOW: сборка графа зависимостей — единственное место регистрации сервисов.
-// Канон (RFC-001 §2): интерфейсы на всё; по мере появления слоёв (WP-P0+)
-// регистрации добавляются здесь и нигде больше.
+// Канон: интерфейсы на всё; по мере появления слоёв регистрации добавляются
+// здесь и нигде больше.
 // STATE: без состояния — чистая фабрика графа.
 internal static class CompositionRoot
 {
     // Регистрации отдельно от сборки провайдера — тесты читают состав графа.
-    // bootLog (LOG-CONTRACT.md): экземпляр, поднятый в Program.Main до контейнера
-    // (crash-хендлеры вешаются раньше любой содержательной работы). null — только
-    // в тестах: тогда лог регистрируется типом со своими дефолтами.
+    // bootLog: экземпляр, поднятый в Program.Main до контейнера (crash-хендлеры
+    // вешаются раньше любой содержательной работы). null — только в тестах:
+    // тогда лог регистрируется типом со своими дефолтами.
     public static IServiceCollection AddRegistrations(
         IServiceCollection services, ILogService? bootLog = null)
     {
         // Контракт «никаких тихих игноров»: протокол — первый сервис графа,
-        // от него зависят все последующие (порталы пишут каждый шаг, НИ-4).
+        // от него зависят все последующие (порталы пишут каждый шаг).
         if (bootLog is null)
         {
             services.AddSingleton<ILogService, LogService>();
@@ -27,17 +27,16 @@ internal static class CompositionRoot
             services.AddSingleton(bootLog);
         }
 
-        // WP-CONFIG (RFC-004 §2.1): local.json — секреты вне репо. Ленивая
-        // фабрика: файл читается при первом resolve — до первого провайдера,
-        // логи [config] идут раньше «провайдер готов».
+        // local.json — секреты вне репо. Ленивая фабрика: файл читается при
+        // первом resolve — до первого провайдера, логи [config] идут раньше
+        // «провайдер готов».
         services.AddSingleton(sp =>
             ConfigService.LoadOrCreate(sp.GetRequiredService<ILogService>()));
 
-        // Каркас WP-0: окно и его корневая модель, оба синглтоны.
-        // WP-U0: VM получает тот же ILogService (живая лента дашборда) и всю
-        // цепь IAiChatProvider (карточки статуса) — фабрика вместо голого типа.
-        // WP-U1: + реестр порталов, база откликов, роутинг/адаптация,
-        // PDF-экспорт, локальная векторизация (WP-U2), индексатор PDF.
+        // Окно и его корневая модель, оба синглтоны. VM получает тот же
+        // ILogService (живая лента протокола), всю цепь IAiChatProvider
+        // (карточки статуса), реестр порталов, базу, адаптацию, PDF-экспорт
+        // и индексатор PDF.
         services.AddSingleton(sp => new ViewModels.MainViewModel(
             sp.GetRequiredService<ILogService>(),
             sp.GetServices<Services.Ai.IAiChatProvider>(),
@@ -45,30 +44,53 @@ internal static class CompositionRoot
             sp.GetRequiredService<Services.IApplicationStore>(),
             sp.GetRequiredService<Services.ResumeAdaptationService>(),
             sp.GetRequiredService<Services.IPdfExporter>(),
-            sp.GetRequiredService<Services.Ai.IEmbeddingService>(),
-            sp.GetRequiredService<Services.PdfIndexerService>()));
+            sp.GetRequiredService<Services.PdfIndexerService>(),
+            sp.GetRequiredService<ConfigService>(),
+            sp.GetRequiredService<ViewModels.ResumeProfilesViewModel>(),
+            // Чекбокс «авто-LMS» (MainViewModel.LmsAutoLoad -> CLI.AutoLoad)
+            // и подъём lm-studio при «Проверить всех» (ProbeRowAsync).
+            sp.GetRequiredService<Services.Ai.LmStudioCli>(),
+            // Смежные запросы поиска (родственные специальности к запросу).
+            sp.GetRequiredService<Services.Ai.RelatedQueriesService>()));
         services.AddSingleton<MainWindow>();
 
-        // WP-P0 (PLAN §7): портальный каркас. Реестр наполняется адаптерами;
-        // KeysCheck читает ключи через ILocalSecrets.
-        // HttpClient — общий синглтон, таймаут 60 с — донорский дефолт
-        // (Atlas GitHubHarvesterService, вербатим-пин Task 51).
-        services.AddSingleton(_ => new System.Net.Http.HttpClient
+        // Портальный каркас: реестр наполняется адаптерами; KeysCheck читает
+        // ключи через ILocalSecrets.
+        // HttpClient — общий синглтон, таймаут 60 с. UA браузерного вида
+        // обязателен: .NET по умолчанию User-Agent НЕ шлёт, и WAF-щиты
+        // порталов режут такие запросы как ботов. Accept/Accept-Language —
+        // щиты (Cloudflare и ко) считают запрос подозрительнее, если не
+        // хватает стандартных браузерных заголовков; пара полей стоимости
+        // не имеет.
+        services.AddSingleton(_ =>
         {
-            Timeout = TimeSpan.FromSeconds(60),
+            var http = new System.Net.Http.HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(60),
+            };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 ai-job-search-by/0.9");
+            http.DefaultRequestHeaders.Accept.ParseAdd(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            http.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+            return http;
         });
 
-        // WP-P1 (PLAN §7): РБ-порталы — оба DefaultEnabled=false (карточки
-        // §2.11): hh-by ждёт возвращения анонимного поиска (перепроверка раз
-        // в квартал), rabota-by — юридический стуб (API только работодателям).
-        // В цепи дефолта их нет; включение — запись конфига Portals[] Enabled=true.
-        services.AddSingleton<Portals.IPortalService, Portals.HhByPortal>();
-        services.AddSingleton<Portals.IPortalService, Portals.RabotaByPortal>();
+        // Зеркала группы hh (Россия/Беларусь/Казахстан/Узбекистан): один
+        // адаптер HhGroupPortal, у каждого зеркала свой хост и свой код
+        // региона — регистрация фабрикой по карточкам каталога.
+        foreach (var mirror in Portals.BuiltInPortals.HhMirrors)
+        {
+            services.AddSingleton<Portals.IPortalService>(sp =>
+                new Portals.HhGroupPortal(
+                    mirror,
+                    sp.GetRequiredService<System.Net.Http.HttpClient>(),
+                    sp.GetRequiredService<Services.ILogService>()));
+        }
 
-        // WP-U1 (решение владельца 2026-10-22): шесть Core-адаптеров коробки
-        // v1 (BuiltInPortals.Core, карточки §2.3) — реестр теперь 8 порталов,
-        // дефолт-цепь 6 (все DefaultEnabled=true). URL и схемы ответов
-        // подтверждены живым зондом 2026-10-22 (golden-фикстуры в тестах).
+        // Шесть международных адаптеров (BuiltInPortals.Core): URL и схемы
+        // ответов подтверждены живым зондом, golden-фикстуры в тестах.
         services.AddSingleton<Portals.IPortalService, Portals.RemoteOkPortal>();
         services.AddSingleton<Portals.IPortalService, Portals.RemotivePortal>();
         services.AddSingleton<Portals.IPortalService, Portals.JobicyPortal>();
@@ -77,64 +99,98 @@ internal static class CompositionRoot
         services.AddSingleton<Portals.IPortalService, Portals.NodeskPortal>();
 
         services.AddSingleton<Portals.PortalRegistry>();
-        // WP-CONFIG: шов ILocalSecrets (ILocalSecrets.cs) встал на реализацию —
+        // Шов ILocalSecrets (ILocalSecrets.cs) встал на реализацию —
         // KeysCheckService читает Portals.{id}.ApiKey из local.json.
         // NullLocalSecrets остаётся в коде для тестовых фикстур.
         services.AddSingleton<ILocalSecrets>(sp => sp.GetRequiredService<ConfigService>());
         services.AddSingleton<IKeysCheckService, KeysCheckService>();
 
-        // WP-U1: база откликов (SQLite по architecture.md §4) — личные данные
-        // вне репо: %APPDATA%\ai-job-search-by\data\ai-job-search-by.db.
+        // База откликов (SQLite по architecture.md §4) — личные данные вне
+        // репо: <профиль>\ai-job-search-by\data\ai-job-search-by.db.
         // Таблицы Vacancies/Applications/SettingsKV — канон §4; PdfDocuments —
-        // векторные ссылки на PDF; расширения Applications — EnsureColumn.
+        // текстовый индекс PDF-папки (столбцы векторов остались пустыми после
+        // вырезания векторизации, r21); расширения Applications — EnsureColumn.
         services.AddSingleton<Services.IApplicationStore>(sp =>
             new Services.ApplicationStore(
                 DataPath(sp, "ai-job-search-by.db"),
                 sp.GetRequiredService<Services.ILogService>()));
 
-        // WP-U2 (решение владельца 2026-10-22): ЛОКАЛЬНЫЙ эмбеддер вместо Jina
-        // (NC-лицензия весов + экспортный риск из РБ, проверка 2026-10-22).
-        // Qwen3-Embedding-0.6B (Apache-2.0) через OpenAI-совместимый
-        // /v1/embeddings: Ollama (дефолт), LM Studio, llama-server — один GGUF.
-        // Ключа нет: живость решает самопробник (LocalEmbeddingService).
-        // Лестница настроек: env AIJOB_EMBEDDINGS_BASE_URL/MODEL -> local.json
-        // Ai.Embeddings -> дефолт Ollama (RFC-004 §3).
-        services.AddSingleton<Services.Ai.IEmbeddingService>(sp =>
-        {
-            var (baseUrl, model) = sp.GetRequiredService<ConfigService>()
-                .ResolveEmbeddings("AIJOB_EMBEDDINGS_BASE_URL", "AIJOB_EMBEDDINGS_MODEL");
-            return new Services.Ai.LocalEmbeddingService(
-                sp.GetRequiredService<System.Net.Http.HttpClient>(),
-                sp.GetRequiredService<Services.ILogService>(),
-                baseUrl, model);
-        });
+        // r21: векторизация вырезана (решение владельца — векторы ничего не
+        // потребляли, «похожие отклики» не существовало; столбцы VectorJson/
+        // VectorModel в базе оставлены пустыми для совместимости старых баз).
 
-        // WP-U1: PDF отклика (QuestPDF 2026.8.0 — пин THIRD-PARTY-NOTICES §2,
+        // PDF отклика (QuestPDF 2026.8.0 — пин THIRD-PARTY-NOTICES §2,
         // Community-лицензия идемпотентно) и индексатор PDF-папки (PdfPig).
         services.AddSingleton<Services.IPdfExporter, Services.PdfExportService>();
+        // Заплатка чужого PDF (PdfPig-координаты + PDFsharp overlay).
+        services.AddSingleton<Services.IPdfOverlay, Services.PdfOverlayService>();
         services.AddSingleton(sp => new Services.PdfIndexerService(
             sp.GetRequiredService<Services.IApplicationStore>(),
-            sp.GetRequiredService<Services.Ai.IEmbeddingService>(),
             sp.GetRequiredService<Services.ILogService>(),
-            () => sp.GetRequiredService<Services.IApplicationStore>()
-                    .GetSetting("outbox.path") ?? Services.ApplicationStore.DefaultOutboxDir));
+            // Общий резолвер — пусто/унаследованное «Документы» → дефолт
+            // <exe>\resume; кастомный путь юзера живёт как есть.
+            () => Services.ApplicationStore.ResolveOutbox(
+                sp.GetRequiredService<Services.IApplicationStore>().GetSetting("outbox.path"))));
 
-        // WP-U1: адаптация резюме (стадия ResumeAdaptation через TaskRoutingPolicy).
+        // Точечная правка DOCX: temp-копия, атомарная подмена, форматирование
+        // не трогаем.
+        services.AddSingleton<Services.IDocxTextEditor, Services.DocxTextEditService>();
+
+        // Адаптация резюме (стадия ResumeAdaptation через TaskRoutingPolicy).
         services.AddSingleton<Services.ResumeAdaptationService>();
 
-        // WP-U1: модель настроек (модальное окно шестерёнки).
+
+        // Профили резюме. База — рядом с конфигами:
+        // <профиль>\ai-job-search-by\resume\, файлы профилей — там же.
+        // Словарь ключевых — файл keywords.json в каталоге local.json: юзер
+        // правит один раз под себя, обновления приложения его не перетирают.
+
+        services.AddSingleton<Services.Resume.IResumeStore>(sp =>
+            new Services.Resume.ResumeStore(
+                ResumeDataPath(sp, "resume.db"),
+                sp.GetRequiredService<Services.ILogService>()));
+        services.AddSingleton<Services.Resume.IResumeParser, Services.Resume.ResumeParser>();
+        services.AddSingleton<Services.Resume.IMdToDocx, Services.Resume.MdToDocx>();
+        services.AddSingleton<Services.Resume.IKeywordDictionary>(sp =>
+        {
+            var log = sp.GetRequiredService<Services.ILogService>();
+            var config = sp.GetRequiredService<ConfigService>();
+            // Рядом с local.json; конфиг не резолвнулся — фолбэк state\
+            // (кричим в протоколе).
+            var dir = config.FilePath is { Length: > 3 } path && System.IO.File.Exists(path)
+                ? System.IO.Path.GetDirectoryName(path)!
+                : System.IO.Path.GetDirectoryName(StatePath(sp, "x"))!;
+            if (config.FilePath is { Length: > 3 } && !System.IO.File.Exists(config.FilePath))
+            {
+                log.LogWarn("skip: local.json не найден — keywords.json ляжет в state\\; " +
+                            "решение: запустить приложение, конфиг создаётся из шаблона");
+            }
+
+            return new Services.Resume.KeywordDictionary(
+                System.IO.Path.Combine(dir, "keywords.json"), log);
+        });
+        services.AddSingleton<ViewModels.ResumeProfilesViewModel>(sp =>
+            new ViewModels.ResumeProfilesViewModel(
+                sp.GetRequiredService<Services.Resume.IResumeStore>(),
+                sp.GetRequiredService<Services.Resume.IResumeParser>(),
+                sp.GetRequiredService<Services.Resume.IMdToDocx>(),
+                sp.GetRequiredService<Services.Resume.IKeywordDictionary>(),
+                sp.GetRequiredService<Services.ILogService>()));
+
+        // Модель настроек (модальное окно шестерёнки).
         services.AddSingleton<ViewModels.SettingsViewModel>();
 
-        // WP-A-LLM7 + WP-A-OPENAI-COMPAT (решения владельца 2026-10-21;
-        // LLM7-INTEGRATION.md §7, ai-providers-card-2026-10-21.md §6):
+
         // ИИ-цепь. Провайдеры: llm7 (free 100K ток/сутки), modelscope
         // (2000 запр/сутки на аккаунт, ≤200/модель), siliconflow (free-модели,
-        // RPM 1000+/TPM 40K+), ollama-local и lm-studio (локальные, без ключа,
-        // безлимит — для владельцев GPU). Без ключа провайдер вне цепи, но
-        // КРИЧИТ причину и путь (НИ-2): ввёл ключ — встал в цепь сам.
-        // WP-CONFIG: ключи — лестница env -> local.json (RFC-004 §2.1);
-        // источник и маска каждого ключа — в протоколе ([config] строки).
-        // Стадия match ИИ НЕ тратит — LocalMatchScorer (критика Мистраля).
+        // RPM 1000+/TPM 40K+), openrouter (free 50 запр/сутки; депозит $10 —
+        // 1000), orcarouter (free-ступени 50 → 800), lm-studio (локальный,
+        // без ключа, безлимит). Без ключа провайдер вне цепи, но КРИЧИТ
+        // причину и путь: ввёл ключ — встал в цепь сам.
+        // Ключи — лестница env -> local.json; источник и маска каждого ключа
+        // — в протоколе ([config] строки). Стадия match ИИ НЕ тратит —
+        // LocalMatchScorer.
+
         services.AddSingleton<Services.Ai.LocalMatchScorer>();
         services.AddSingleton<Services.Ai.ResponseCostCounter>();
         services.AddSingleton<Services.Ai.IAiChatProvider>(sp =>
@@ -156,12 +212,12 @@ internal static class CompositionRoot
                 baseUrl: Services.Ai.OpenAiCompatibleProvider.ModelScopeBaseUrl,
                 modelEnvVar: "AIJOB_MODELSCOPE_MODEL",
                 apiKeyEnvVar: "AIJOB_MODELSCOPE_API_KEY",
-                apiKey: key, // лестница: env -> local.json (WP-CONFIG)
+                apiKey: key,
                 qualityRank: 2, // сильные Qwen-инструкты — на резюме первыми
                 dailyRequestCap: Services.Ai.OpenAiCompatibleProvider.ModelScopeDailyRequestCap,
                 maxConcurrent: 1, // «single-request concurrency» — онбординг ModelScope
                 requireApiKey: true,
-                disableThinking: true, // WP-A-LIVE: гибридные Qwen думают по умолчанию -> 504 Tengine
+                disableThinking: true, // гибридные Qwen думают по умолчанию -> 504 Tengine
                 requestLedgerPath: StatePath(sp, "modelscope-requests.json"),
                 signupHint: "modelscope.ai");
         });
@@ -176,44 +232,106 @@ internal static class CompositionRoot
                 baseUrl: Services.Ai.OpenAiCompatibleProvider.SiliconFlowBaseUrl,
                 modelEnvVar: "AIJOB_SILICONFLOW_MODEL",
                 apiKeyEnvVar: "AIJOB_SILICONFLOW_API_KEY",
-                apiKey: key, // лестница: env -> local.json (WP-CONFIG)
+                apiKey: key,
                 qualityRank: 4,
                 dailyRequestCap: null, // суточные RPD free-моделей не публикуются — [cost] соберёт фактически
                 requireApiKey: true,
-                disableThinking: true, // WP-A-LIVE: Qwen3-8B тоже гибридный — thinking глушим
+                disableThinking: true, // Qwen3-8B тоже гибридный — thinking глушим
                 signupHint: "siliconflow.com");
         });
         services.AddSingleton<Services.Ai.IAiChatProvider>(sp =>
-            new Services.Ai.OpenAiCompatibleProvider(
-                sp.GetRequiredService<Services.ILogService>(),
-                name: "ollama-local",
-                baseUrl: Services.Ai.OpenAiCompatibleProvider.OllamaLocalBaseUrl,
-                modelEnvVar: "AIJOB_OLLAMA_MODEL",
-                qualityRank: 5, // локальные — резерв: медленно, зато безлимит и круглосуточно
-                requireApiKey: false));
-        services.AddSingleton<Services.Ai.IAiChatProvider>(sp =>
-            new Services.Ai.OpenAiCompatibleProvider(
-                sp.GetRequiredService<Services.ILogService>(),
+        {
+            // Ступень lm-studio — декоратор над OpenAiCompatibleProvider
+            // (порт 1234). Декоратор при первом доходе цепи поднимает демона
+            // и модель через официальный CLI (lms): daemon up -> ps -> (ls ->
+            // выбор) -> load -> ps-перепроверка -> отклик-проба (chat-ping,
+            // 30с). GUI-сервер НЕ используем (конфликтует с демоном за
+            // конфиги). Чужие модели НЕ выгружаем — модалка выбора, а при
+            // чекбоксе «авто-LMS» — молча.
+            var log = sp.GetRequiredService<Services.ILogService>();
+            var cli = sp.GetRequiredService<Services.Ai.LmStudioCli>();
+            var inner = new Services.Ai.OpenAiCompatibleProvider(
+                log,
                 name: "lm-studio",
                 baseUrl: Services.Ai.OpenAiCompatibleProvider.LmStudioBaseUrl,
                 modelEnvVar: "AIJOB_LMSTUDIO_MODEL",
+                qualityRank: 7,
+                requireApiKey: false);
+            return new Services.Ai.LmStudioBootstrappingProvider(inner, cli, log);
+        });
+        services.AddSingleton<Services.Ai.LmStudioCli>();
+        // OpenRouter и OrcaRouter — главные поставщики free-промта (ключи в
+        // настройках); локальная ollama в дефолт не входит (карточка краснела
+        // бы без причины).
+        services.AddSingleton<Services.Ai.IAiChatProvider>(sp =>
+        {
+            var log = sp.GetRequiredService<Services.ILogService>();
+            var (key, _) = sp.GetRequiredService<ConfigService>()
+                .ResolveAiKey("OpenRouter", "AIJOB_OPENROUTER_API_KEY");
+            return new Services.Ai.OpenAiCompatibleProvider(
+                log,
+                name: "openrouter",
+                baseUrl: Services.Ai.OpenAiCompatibleProvider.OpenRouterBaseUrl,
+                modelEnvVar: "AIJOB_OPENROUTER_MODEL",
+                apiKeyEnvVar: "AIJOB_OPENROUTER_API_KEY",
+                apiKey: key,
+                qualityRank: 5, // сильные free-модели — после облачных базовых
+                dailyRequestCap: null, // free 50/сутки, депозит $10 → 1000 — не хардкодим, 429 решит
+                requireApiKey: true,
+                signupHint: "openrouter.ai",
+                // Агрегатор: список бесплатных -> наилучшая -> отказ = следующая
+                // -> удачная («липучесть») в файл.
+                freeCatalog: true,
+                stickyFilePath: StatePath(sp, "openrouter-sticky.json"));
+        });
+        services.AddSingleton<Services.Ai.IAiChatProvider>(sp =>
+        {
+            var log = sp.GetRequiredService<Services.ILogService>();
+            var (key, _) = sp.GetRequiredService<ConfigService>()
+                .ResolveAiKey("OrcaRouter", "AIJOB_ORCAROUTER_API_KEY");
+            return new Services.Ai.OpenAiCompatibleProvider(
+                log,
+                name: "orcarouter",
+                baseUrl: Services.Ai.OpenAiCompatibleProvider.OrcaRouterBaseUrl,
+                modelEnvVar: "AIJOB_ORCAROUTER_MODEL",
+                apiKeyEnvVar: "AIJOB_ORCAROUTER_API_KEY",
+                apiKey: key,
                 qualityRank: 6,
-                requireApiKey: false));
+                dailyRequestCap: null, // ступени 50→800/сутки знает сам провайдер (429 = фолбэк)
+                requireApiKey: true,
+                signupHint: "orcarouter.ai",
+                // Free-каталог — фишка OpenRouter, у orcarouter его нет:
+                // ступень работает по модели конфига (deepseek/deepseek-v4.1-
+                // flash-free / AIJOB_ORCAROUTER_MODEL) без перебора бесплатных
+                // и без липучести.
+                freeCatalog: false);
+        });
         services.AddSingleton<Services.Ai.TaskRoutingPolicy>(sp =>
             new Services.Ai.TaskRoutingPolicy(
                 sp.GetRequiredService<Services.ILogService>(),
-                sp.GetServices<Services.Ai.IAiChatProvider>(),
-                coverLetterOrder: new[] { "llm7", "modelscope", "siliconflow", "ollama-local", "lm-studio" })); // письма — от дешёвых к дорогим
+                sp.GetServices<Services.Ai.IAiChatProvider>()
+                    // Кастомные звенья из local.json (Chain.Custom) —
+                    // полноправный хвост фолбэка после встроенных.
+                    .Concat(sp.GetRequiredService<ConfigService>()
+                        .BuildCustomProviders(sp.GetRequiredService<Services.ILogService>())),
+                coverLetterOrder: new[] { "llm7", "modelscope", "siliconflow", "openrouter", "orcarouter", "lm-studio" })); // письма — от дешёвых к дорогим
+
+        // Смежные запросы поиска: ИИ называет 1-2 родственных запроса, кэш в
+        // SettingsKV — повторные поиски того же слова ИИ не платят.
+        services.AddSingleton<Services.Ai.RelatedQueriesService>();
 
         return services;
     }
 
-    // Личные данные (регистры бюджета) — вне репо: <профиль>/ai-job-search-by/state/.
-    // Guard абсолютного пути — как в LogService (К1); фолбэк рядом с exe не молчит (НИ-2).
-    private static string StatePath(IServiceProvider sp, string fileName)
+    // Личные данные — вне репо: <профиль>/ai-job-search-by/<подкаталог>/файл.
+    // Корень — %USERPROFILE% (C:\Users\<user>), НЕ %APPDATA%: профиль виден
+    // глазами в проводнике, и конфиг с ключами не теряется при
+    // перекомпиляции. Guard абсолютного пути — как в LogService; фолбэк
+    // рядом с exe не молчит (пишет причину в протокол).
+    private static string RootedPath(IServiceProvider sp, string subDir, string fileName)
     {
         var log = sp.GetRequiredService<Services.ILogService>();
-        var profileDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var profileDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var rooted = !string.IsNullOrWhiteSpace(profileDir) && Path.IsPathRooted(profileDir);
         if (!rooted)
         {
@@ -221,25 +339,22 @@ internal static class CompositionRoot
                         "ляжет рядом с exe (фолбэк AppContext.BaseDirectory)");
         }
         var root = rooted ? profileDir : AppContext.BaseDirectory;
-        return System.IO.Path.Combine(root, "ai-job-search-by", "state", fileName);
+        return System.IO.Path.Combine(root, "ai-job-search-by", subDir, fileName);
     }
 
-    // WP-U1: личные данные откликов — <профиль>/ai-job-search-by/data/ (канон:
-    // personal data только вне репо, architecture.md §8). Guard и фолбэк —
-    // те же, что у StatePath (К1/НИ-2).
+    // Регистры бюджета/квот — <профиль>/ai-job-search-by/state/.
+    private static string StatePath(IServiceProvider sp, string fileName)
+        => RootedPath(sp, "state", fileName);
+
+    // Личные данные откликов — <профиль>/ai-job-search-by/data/ (личные
+    // данные только вне репо, architecture.md §8).
     private static string DataPath(IServiceProvider sp, string fileName)
-    {
-        var log = sp.GetRequiredService<Services.ILogService>();
-        var profileDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var rooted = !string.IsNullOrWhiteSpace(profileDir) && Path.IsPathRooted(profileDir);
-        if (!rooted)
-        {
-            log.LogWarn($"skip: профильный каталог не резолвится — {fileName} " +
-                        "ляжет рядом с exe (фолбэк AppContext.BaseDirectory)");
-        }
-        var root = rooted ? profileDir : AppContext.BaseDirectory;
-        return System.IO.Path.Combine(root, "ai-job-search-by", "data", fileName);
-    }
+        => RootedPath(sp, "data", fileName);
+
+    // База профилей резюме — рядом с конфигами:
+    // <профиль>\ai-job-search-by\resume\resume.db + files\<профиль>\.
+    private static string ResumeDataPath(IServiceProvider sp, string fileName)
+        => RootedPath(sp, "resume", fileName);
 
     public static ServiceProvider Build(ILogService? bootLog = null)
         => AddRegistrations(new ServiceCollection(), bootLog).BuildServiceProvider();

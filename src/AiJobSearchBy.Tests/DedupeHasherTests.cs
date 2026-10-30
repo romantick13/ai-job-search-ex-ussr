@@ -3,16 +3,16 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: гейты дедупа (RFC-003 §2.8, architecture.md §10): композит ДО
-// нормализации, детерминизм, защита от склеек, совместимость с Atlas-портом.
-// Вектор Compute пинит ВЕРХНИЙ регистр hex — так в исходнике Atlas
-// (Convert.ToHexString), вербатим проверен исходником донора (Task 51).
+// FLOW: гейты дедупа (architecture.md §10): композит ДО
+// нормализации, детерминизм, защита от склеек.
+// Вектор Compute пинит ВЕРХНИЙ регистр hex — так в .NET
+// (Convert.ToHexString).
 public class DedupeHasherTests
 {
     [Fact]
     public void Compute_ReturnsKnownSha256Hex()
     {
-        // Известный вектор SHA256("abc") — пин вербатим-порта из Atlas.
+        // Известный вектор SHA256("abc").
         Assert.Equal(
             "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD",
             DedupeHasher.Compute("abc"));
@@ -28,7 +28,7 @@ public class DedupeHasherTests
         Assert.Equal(64, first.Length);
         Assert.All(first, c => Assert.True(
             char.IsAsciiHexDigitUpper(c),
-            $"ожидался ВЕРХНИЙ hex (как в Atlas Convert.ToHexString), получен '{c}'"));
+            $"ожидался ВЕРХНИЙ hex (Convert.ToHexString), получен '{c}'"));
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class DedupeHasherTests
     [Fact]
     public void ComputeComposite_HashesRawValues_BeforeNormalization()
     {
-        // Семантика «ДО нормализации» (§10): хэшер не тримит и не чистит —
+        // Семантика «ДО нормализации» (architecture.md §10): хэшер не тримит и не чистит —
         // сырые значения. Разные сырые URL → разные хэши.
         var raw = DedupeHasher.ComputeComposite("belmeta", "7", "https://belmeta.com/vacansii/7 ");
         var trimmed = DedupeHasher.ComputeComposite("belmeta", "7", "https://belmeta.com/vacansii/7");

@@ -6,39 +6,25 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 using Avalonia.Threading;
 
-// ВЕРБАТИМ-ПОРТ из донора UniD (upload/UniD.zip -> UniD/Controls/SparklingProgressBar.cs,
-// исходники получены от владельца 2026-10-21; решение владельца «слямзишь оттуда
-// контролы, можно сделать хардкодом»): изменён только namespace
-// UniD.Controls -> AiJobSearchBy.Controls, тело не тронуто. Ключи скина
-// ProgressBar.GradientStart/End у нас не заданы — контрол честно работает
-// с дефолтами; TrailEndBrush задаётся в MainWindow.axaml (WP-U0).
 namespace AiJobSearchBy.Controls;
 
-/// <summary>
-/// ProgressBar с системой частиц (искры "бенгальского огня") на конце
-/// заполненной полосы — перенесено из проекта Button (Controls/NeuSparklingProgressBar.cs,
-/// см. итерации 1-6 в комментариях там же) как реальный потребитель ключей
-/// скина, которые Button уже экспортирует, но которые раньше ничего не
-/// красили в UniD: "ProgressBar.GradientStart", "ProgressBar.GradientEnd",
-/// "ProgressBar.SparkEffect".
-///
-/// Два отличия от версии в Button (там это была демонстрационная полоса,
-/// здесь — рабочий контрол в реальном списке загрузок):
-///
-/// 1. Заливка (PART_Indicator.Background) больше не задаётся статикой из
-///    XAML-темы — она собирается в коде из двух StyledProperty (см.
-///    UpdateIndicatorGradient) в LinearGradientBrush. Foreground используется
-///    как цвет начала (совместимо с тем, что MainWindow.axaml и раньше
-///    выставлял Foreground="{DynamicResource ProgressBar.Foreground}" —
-///    старые скины без ProgressBar.GradientStart/End продолжат работать:
-///    если TrailEndBrush не задан, оба конца градиента совпадают и полоса
-///    выглядит как раньше, сплошной заливкой).
-/// 2. Добавлено SparklesEnabled (bool StyledProperty) — искры и свечение
-///    спаунятся/рисуются только если true. Привязывается к
-///    "ProgressBar.SparkEffect" в стиле, см. MainWindow.axaml. Скины без
-///    этого ключа получают default = true (эффект виден "из коробки"), а
-///    не молча ломаются.
-/// </summary>
+// / <summary>
+// / ProgressBar с системой частиц (искры «бенгальского огня») на конце
+// / заполненной полосы — живёт, пока идёт поиск/адаптация. Использование:
+// / MainWindow.axaml (Foreground = AccentBrush, TrailEndBrush = #B350FFB0).
+// /
+// / Два свойства поверх базового ProgressBar:
+// /
+// / 1. Заливка индикатора (PART_Indicator.Background) не задаётся статикой
+// / из XAML-темы — она собирается в коде из двух StyledProperty
+// / (см. UpdateIndicatorGradient) в LinearGradientBrush: Foreground —
+// / цвет начала, TrailEndBrush — цвет конца. Если TrailEndBrush не задан,
+// / оба конца градиента совпадают и полоса выглядит как обычная
+// / сплошная заливка.
+// / 2. SparklesEnabled (bool StyledProperty) — искры и свечение спаунятся
+// / и рисуются только при true; по умолчанию true, так что эффект виден
+// / «из коробки», а стили без привязки к этому свойству ничего не ломают.
+// / </summary>
 public class SparklingProgressBar : ProgressBar
 {
     public static readonly StyledProperty<IBrush?> TrailEndBrushProperty =
@@ -99,12 +85,11 @@ public class SparklingProgressBar : ProgressBar
         }
     }
 
-    /// <summary>
-    /// Собирает LinearGradientBrush заливки из Foreground (начало, = скин-ключ
-    /// "ProgressBar.GradientStart" через стиль) и TrailEndBrush (конец, =
-    /// "ProgressBar.GradientEnd"). Если TrailEndBrush не задан (скин без этого
-    /// ключа) — оба конца совпадают, получается сплошная заливка, как раньше.
-    /// </summary>
+    // / <summary>
+    // / Собирает LinearGradientBrush заливки из Foreground (начало) и
+    // / TrailEndBrush (конец). Если TrailEndBrush не задан — оба конца
+    // / совпадают, получается сплошная заливка.
+    // / </summary>
     private void UpdateIndicatorGradient()
     {
         if (_indicator == null)

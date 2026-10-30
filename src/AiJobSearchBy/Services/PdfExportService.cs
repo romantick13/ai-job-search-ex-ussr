@@ -7,22 +7,22 @@ using QuestPDF.Infrastructure;
 namespace AiJobSearchBy.Services;
 
 // ============================================================================
-// WP-U1 (решение владельца 2026-10-22): генерация PDF отклика.
+// генерация PDF отклика.
 // QuestPDF 2026.8.0 — пин THIRD-PARTY-NOTICES.md §2; Community-лицензия
 // выставляется идемпотентно (architecture.md §3.5), строка о «Built with
 // QuestPDF» — в README и NOTICE (пин канона).
-//
-// Имя файла — требование владельца: «имя работодателя и дата (время создания
+
+// Имя файла — требование «имя работодателя и дата (время создания
 // в имени)»: {Работодатель}_{yyyyMMdd_HHmmss}.pdf; мусор в имени работодателя
 // вычищается SanitizeFileName (пустое имя → «работодатель», файл никогда
 // не безымянный).
-//
+
 // FLOW: MainViewModel.SendCommand -> SaveResumePdfAsync -> путь файла ->
-//       Applications.CvPath + PdfIndexerService (векторная ссылка в базе).
+// Applications.CvPath + PdfIndexerService (векторная ссылка в базе).
 // STATE: без состояния; папка откликов передаётся на вызов (SettingsKV,
-//        дефолт Документы\ai-job-search-by).
+// дефолт Документы\ai-job-search-by).
 // THREAD: QuestPDF.GeneratePdf потокобезопасен для разных документов; вызовы
-//         UI-кнопки последовательно.
+// UI-кнопки последовательно.
 // ============================================================================
 public interface IPdfExporter
 {
@@ -37,7 +37,7 @@ public sealed class PdfExportService : IPdfExporter
 
     static PdfExportService()
     {
-        // Идемпотентная установка лицензии (канон §3.5): Community — бесплатно
+        // Идемпотентная установка лицензии (architecture.md §3.5): Community — бесплатно
         // для организаций с годовым доходом < $1M; строка лицензии — в README/NOTICE.
         QuestPDF.Settings.License = LicenseType.Community;
     }
@@ -47,7 +47,7 @@ public sealed class PdfExportService : IPdfExporter
         _log = log;
     }
 
-    // Требование владельца: работодатель + дата-время создания в имени.
+    // Требование работодатель + дата-время создания в имени.
     public static string BuildPdfFileName(string employer, DateTimeOffset at)
         => $"{SanitizeFileName(employer)}_{at:yyyyMMdd_HHmmss}.pdf";
 

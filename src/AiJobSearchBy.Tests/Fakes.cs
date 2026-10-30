@@ -5,7 +5,7 @@ using AiJobSearchBy.Services;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: общие фейки тестов портального каркаса WP-P0 — без сети (FakeHttpHandler)
+// FLOW: общие фейки тестов портального каркаса — без сети (FakeHttpHandler)
 // и без конфиг-слоя (FakeLocalSecrets).
 
 // Фейковый портал для реестра/keys-check.
@@ -35,6 +35,10 @@ public sealed class FakePortal : IPortalService
     public Task<JobPosting> DetailAsync(string idOrUrl, CancellationToken ct = default)
         => throw new NotSupportedException("fake");
 
+    // фейк ведёт себя как API-портал: детали не достаёт (адаптация в тестах
+    // не должна ходить в сеть за текстом вакансии).
+    public bool SupportsDetail => false;
+
     public Task<PortalHealthReport> HealthCheckAsync(CancellationToken ct = default)
         => Task.FromResult(new PortalHealthReport(PortalHealthStatus.Ok, "fake"));
 }
@@ -52,7 +56,7 @@ public sealed class FakeHttpHandler : HttpMessageHandler
 
     public int RequestCount { get; private set; }
 
-    // WP-U1: адаптерные тесты сверяют URL-строители по перехваченным запросам.
+    // адаптерные тесты сверяют URL-строители по перехваченным запросам.
     public IReadOnlyList<HttpRequestMessage> Requests => _requests;
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -94,4 +98,7 @@ public sealed class SilentLog : ILogService
     public void LogError(string message) => Logs.Add($"[..] ERR {message}");
     public void LogWarn(string message) => Logs.Add($"[..] WARN {message}");
     public void Clear() => Logs.Clear();
+
+    // у фейка диска нет — каталог пустой строки (никем не читается)
+    public string LogDirectory => string.Empty;
 }

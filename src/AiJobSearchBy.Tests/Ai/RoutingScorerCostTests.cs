@@ -10,7 +10,7 @@ using Xunit;
 namespace AiJobSearchBy.Tests.Ai;
 
 // ============================================================================
-// [НАШЕ] Тесты роутинга по критике Мистраля: match без ИИ (отказ политики
+// Тесты роутинга: match без ИИ (отказ политики
 // кричит), порядок письма (llm7 первым), фолбэк цепи, локальный скоринг,
 // формат строки [cost].
 // ============================================================================
@@ -29,24 +29,29 @@ public sealed class RoutingScorerCostTests : IDisposable
 
     private LogService Log() => new(_dir);
 
-    // STATE: StubProvider(name, rank, busy) — сценарии фолбэка и порядков стадий
+    // STATE: StubProvider(name, rank, busy, failWith) — сценарии фолбэка и порядков стадий;
+    // failWith — сбои НЕ-«занятость» (HTTP 401/500, таймаут): — цепь обязана их перебирать
     private sealed class StubProvider : IAiChatProvider
     {
         public string Name { get; }
         public int QualityRank { get; }
         private readonly bool _busy;
+        private readonly Exception? _failWith;
 
-        public StubProvider(string name, int qualityRank, bool busy = false)
+        public StubProvider(string name, int qualityRank, bool busy = false,
+            Exception? failWith = null)
         {
             Name = name;
             QualityRank = qualityRank;
             _busy = busy;
+            _failWith = failWith;
         }
 
         public long? RemainingDailyTokens() => null;
 
         public Task<AiChatResult> CompleteAsync(AiChatRequest request, CancellationToken ct = default)
         {
+            if (_failWith is not null) throw _failWith;
             if (_busy) throw new AiProviderBusyException("тест: занят");
             return Task.FromResult(new AiChatResult(
                 "ответ", Name, new AiChatUsage(10, 5), Name, TimeSpan.FromMilliseconds(1)));
@@ -130,6 +135,94 @@ public sealed class RoutingScorerCostTests : IDisposable
         Assert.Null(result);
         Assert.Contains(log.Logs.Cast<string>(),
             x => x.Contains("\u274C") && x.Contains("провайдеры исчерпаны") && x.Contains("a: тест: занят"));
+    }
+
+    // ------------------------------------------------------------- цепь перебирает ВСЕ сбои
+
+    [Fact]
+    public async Task Chain_Failover_Http401_To_Next()
+    {
+        // Сценарий: ModelScope 401 (ключ сервером отклонён)
+        // — адаптация НЕ должна падать, цепь идёт к следующему.
+        var log = Log();
+        var policy = new TaskRoutingPolicy(
+            log,
+            new IAiChatProvider[]
+            {
+                new StubProvider("modelscope", 1, failWith:
+                    new HttpRequestException("modelscope: HTTP 401: Authentication failed")),
+                new StubProvider("orcarouter", 2)
+            });
+
+        var result = await policy.RunAsync(AiTaskKind.ResumeAdaptation, new AiChatRequest("s", "u", 256));
+
+        Assert.NotNull(result);
+        Assert.Equal("orcarouter", result!.ProviderName); // следующий победил
+        Assert.Contains(log.Logs.Cast<string>(),
+            x => x.Contains("\u26A0") && x.Contains("modelscope сбой")
+                && x.Contains("HttpRequestException")
+                && x.Contains("следующий в цепи: orcarouter"));
+    }
+
+    [Fact]
+    public async Task Chain_Failover_Timeout_To_Next()
+    {
+        var log = Log();
+        var policy = new TaskRoutingPolicy(
+            log,
+            new IAiChatProvider[]
+            {
+                new StubProvider("modelscope", 1, failWith: new TimeoutException("modelscope: таймаут запроса")),
+                new StubProvider("llm7", 2)
+            });
+
+        var result = await policy.RunAsync(AiTaskKind.CoverLetter, new AiChatRequest("s", "u", 256));
+
+        Assert.NotNull(result);
+        Assert.Equal("llm7", result!.ProviderName);
+    }
+
+    [Fact]
+    public async Task Chain_All_Fail_Loud_Null_NoThrow()
+    {
+        // Все провайдеры сбойнулись — стадия честно не сделана (null, громкий
+        // LogError), а НЕ исключение наверх, как было до .
+        var log = Log();
+        var policy = new TaskRoutingPolicy(
+            log,
+            new IAiChatProvider[]
+            {
+                new StubProvider("modelscope", 1, failWith:
+                    new HttpRequestException("modelscope: HTTP 401: Authentication failed")),
+                new StubProvider("orcarouter", 2, failWith:
+                    new HttpRequestException("orcarouter: HTTP 500: boom"))
+            });
+
+        var result = await policy.RunAsync(AiTaskKind.ResumeAdaptation, new AiChatRequest("s", "u", 256));
+
+        Assert.Null(result);
+        Assert.Contains(log.Logs.Cast<string>(),
+            x => x.Contains("\u274C") && x.Contains("провайдеры исчерпаны")
+                && x.Contains("modelscope: HTTP 401") && x.Contains("orcarouter: HTTP 500"));
+    }
+
+    [Fact]
+    public async Task Chain_User_Cancel_Propagates_NoFailover()
+    {
+        // «Отмена» юзера — не сбой провайдера: наверх без перебора остальных.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var log = Log();
+        var policy = new TaskRoutingPolicy(
+            log,
+            new IAiChatProvider[]
+            {
+                new StubProvider("modelscope", 1, failWith: new OperationCanceledException(cts.Token)),
+                new StubProvider("orcarouter", 2)
+            });
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => policy.RunAsync(AiTaskKind.ResumeAdaptation, new AiChatRequest("s", "u", 256), cts.Token));
     }
 
     // ------------------------------------------------------------------ скоринг

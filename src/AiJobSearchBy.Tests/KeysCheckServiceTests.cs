@@ -4,7 +4,7 @@ using Xunit;
 
 namespace AiJobSearchBy.Tests;
 
-// FLOW: гейты keys-check (RFC-003 §2.9): auth=none зелёный сразу; ключевой —
+// FLOW: гейты keys-check: auth=none зелёный сразу; ключевой —
 // наличие ключа + живой пинг; нет ключа/мёртвый пинг = вне цепи С ПРИЧИНОЙ,
 // не краш; гео-пинг 403 → GeoBlocked без сжигания ретраев.
 public class KeysCheckServiceTests
@@ -80,7 +80,7 @@ public class KeysCheckServiceTests
     [Fact]
     public async Task PersonalKey_PingThrows_IsPingFailed_NotCrash()
     {
-        // §2.9: «не краш» — любое исключение пинга превращается в вердикт.
+        // «Не краш» — любое исключение пинга превращается в вердикт.
         var service = Create(
             new FakeLocalSecrets(new Dictionary<string, string> { ["adzuna"] = "test-key" }),
             ping: (_, _) => throw new HttpRequestException("connection refused"));
@@ -108,13 +108,13 @@ public class KeysCheckServiceTests
     [Fact]
     public async Task PersonalKey_KeyPresent_PingNotConfigured_IsHonestSkeletonStatus()
     {
-        // WP-P0: адаптеров нет — ключ найден, но живой пинг появляется WP-P1+.
+        // Адаптеров нет — ключ найден, но живой пинг не настроен.
         var service = Create(new FakeLocalSecrets(new Dictionary<string, string> { ["adzuna"] = "test-key" }));
 
         var report = await service.CheckAsync(new FakePortal("adzuna", auth: PortalAuthKind.PersonalKey));
 
         Assert.Equal(KeyCheckStatus.PingNotConfigured, report.Status);
-        Assert.Contains("WP-P1+", report.Reason, StringComparison.Ordinal);
+        Assert.Contains("адаптером портала", report.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -132,6 +132,6 @@ public class KeysCheckServiceTests
 
         Assert.Equal(2, reports.Count);
         Assert.Equal(["a", "b"], reports.Select(r => r.PortalId));
-        Assert.All(reports, r => Assert.True(r.Reason.Length > 0, "причина обязательна (§2.9)"));
+        Assert.All(reports, r => Assert.True(r.Reason.Length > 0, "причина обязательна"));
     }
 }
