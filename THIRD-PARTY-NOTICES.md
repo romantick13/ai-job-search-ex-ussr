@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 This file lists third-party components used or distributed with
-**ai-job-search-by**. It is provided for information only and is not a
+**ai-job-search-ex-ussr**. It is provided for information only and is not a
 license agreement; the actual terms are the texts of the respective
 licenses.
 
@@ -10,7 +10,7 @@ licenses.
 | What | Copyright | License | Grant file |
 |---|---|---|---|
 | Upstream project [ai-job-search](https://github.com/MadsLorentzen/ai-job-search) (attribution; no files ported verbatim) | © 2025 MadsLorentzen | MIT | [LICENSE](LICENSE) |
-| The ai-job-search-by adaptation (.NET/Avalonia app, scripts, docs) | © 2026 ThreeI and the ai-job-search-by contributors | MIT | [LICENSE-THREEI.md](LICENSE-THREEI.md) |
+| The ai-job-search-ex-ussr adaptation (.NET/Avalonia app, scripts, docs) | © 2026 ThreeI and the ai-job-search-ex-ussr contributors | MIT | [LICENSE-THREEI.md](LICENSE-THREEI.md) |
 
 No upstream files are ported verbatim: the upstream markdown
 prompts/commands/skills are **not** carried over (owner decision,
@@ -45,7 +45,7 @@ upstream.
   distribution zip and proprietary notices are not removed or obscured.
 - "Built with QuestPDF" is used in the README as a truthful factual
   statement — permitted by the license, not a requirement.
-- This distribution is built and redistributed by the ai-job-search-by
+- This distribution is built and redistributed by the ai-job-search-ex-ussr
   maintainers, who comply with the Community terms; end users of the
   application are not "Developers" under the License Selection Guide
   v3.0 and do not need a separate QuestPDF license.
@@ -68,7 +68,7 @@ upstream.
 
 ## 4. NuGet dependencies
 
-Versions are pinned in [`src/AiJobSearchBy/AiJobSearchBy.csproj`](src/AiJobSearchBy/AiJobSearchBy.csproj);
+Versions are pinned in [`src/AiJobSearchExUssr/AiJobSearchExUssr.csproj`](src/AiJobSearchExUssr/AiJobSearchExUssr.csproj);
 that file is the authoritative source at build time.
 
 | Component | Version | License (SPDX) |

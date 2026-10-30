@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WP-0 (PLAN.md §6): нулевой каркас. Пины версий — RFC-001 §2, менять
+       только через RFC. QuestPDF/OpenXml/Markdig/PdfPig подключаются на WP-E,
+       не раньше (RFC-001 §4). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AiJobSearchExUssr</RootNamespace>
+    <AssemblyName>AiJobSearchExUssr</AssemblyName>
+    <!-- Compiled bindings по умолчанию (RFC-001 §2: x:DataType) -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- WP-R6.1 (решение владельца 2026-10-26): иконка приложения (images.jpg
+         -> Assets/app.ico) — на exe в Проводнике и дефолт таскбара. -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UI -->
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!-- DB (канон: SQLite + Dapper, без EF) -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.2.0" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+    <!-- Шаг 3: overlay чужого PDF. PDFsharp 6.1.1 = последняя MIT-версия
+         без runtime-лицензии (гейт введён в 6.2.0); 6.x тянет ImageSharp
+         с NU1903, потому пин ровно 6.1.1 (THIRD-PARTY-NOTICES §4). -->
+    <PackageReference Include="PDFsharp" Version="6.1.1" />
+    <PackageReference Include="QuestPDF" Version="2026.8.0" />
+    <!-- Секьюрити-пин транзитива (NU1903, GHSA-2m69-gcr7-jv3q):
+         Microsoft.Data.Sqlite 10.0.10 тянет bundle 2.1.11; поднимаем до
+         последнего 2.x. Пересмотреть при повышении Microsoft.Data.Sqlite. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.14" />
+    <!-- DI (канон: интерфейсы на всё) -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Внутренние типы (CompositionRoot) видны тестам -->
+    <InternalsVisibleTo Include="AiJobSearchExUssr.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WP-R6.1 (рецепт UniD): иконка и В DLL (AvaloniaResource для
+         avares:// — её читают окно и трей через AssetLoader.Open), и НА
+         ДИСК (Content, рядом с exe — штатная копия для отладки/ручного
+         запуска). images.jpg в Assets — исходник, в сборку попадает
+         нейтрально (владелец хранит его сам). -->
+    <Content Include="Assets\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WP-CONFIG (RFC-004 §2.1): шаблон секретов — внедрённый ресурс
+         (паттерн UniD/YoutubeConfigService.ReadEmbeddedDefault: ресурс
+         всегда в сборке, путь искать не нужно). В репо лежит ТОЛЬКО
+         пустой шаблон; юзерский local.json живёт в %APPDATA% и в git
+         не попадает (.gitignore + RepoSecretsGuardTests). -->
+    <EmbeddedResource Include="local.example.json" />
+  </ItemGroup>
+
+</Project>

@@ -70,10 +70,12 @@ ACCESS_LABEL = {
     "scrape": "без авторизации (HTML)",
 }
 
+# Ярлыки r22d (критика Perplexity): слово «разрешён» из публичного README
+# убрано — колонка «Оценка автоматизации» даёт оценку, а не обещание.
 TOS_LABEL = {
-    "allowed": "разрешён",
-    "browser_view": "браузерный просмотр",
-    "official_api": "официальное API",
+    "allowed": "публичный API/лента",
+    "browser_view": "ограниченно допустимо\\*",
+    "official_api": "официальный API",
     "forbidden": "запрещён",
     "unverified": "не проверен",
 }
@@ -186,7 +188,7 @@ def render_portal_table(registry: dict) -> str:
             f"**{len([p for p in registry.get('portals', []) if p.get('adapter_implemented', False)])}**."
         )
 
-    lines = [head, "", "| Портал | Домен | Страна | Доступ | Статус ToS |", "|---|---|---|---|---|"]
+    lines = [head, "", "| Портал | Домен | Страна | Доступ | Оценка автоматизации |", "|---|---|---|---|---|"]
     wired = [p for p in registry.get("portals", []) if p.get("adapter_implemented", False)]
     # Порядок таблицы = порядок реестра (приоритет проекта), не алфавит.
     for p in wired:

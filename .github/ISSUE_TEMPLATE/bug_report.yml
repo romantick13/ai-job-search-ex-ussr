@@ -41,7 +41,7 @@ body:
         - Windows: версия и разрядность;
         - процессор и ОЗУ (если без GPU — отметьте это);
         - каталог установки (из `Program Files` или нет).
-      placeholder: 'Windows 11 x64, 8 ГБ ОЗУ, без GPU, D:\Tools\ai-job-search-by'
+      placeholder: 'Windows 11 x64, 8 ГБ ОЗУ, без GPU, D:\Tools\ai-job-search-ex-ussr'
     validations:
       required: true
 
@@ -80,7 +80,7 @@ body:
     attributes:
       label: Журнал
       description: |
-        Содержимое `%APPDATA%\ai-job-search-by\logs\` (последний файл).
+        Содержимое `%USERPROFILE%\ai-job-search-ex-ussr\logs\` (последний файл).
         **Проверьте, что в нём нет персональных данных и ключей** —
         ключи туда не пишутся, но вакансии пишутся.
 

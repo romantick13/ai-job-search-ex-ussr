@@ -80,7 +80,7 @@ jobs:
             exit 1
           fi
 
-  # Job активируется при наличии решения в репо (src/ai-job-search-by.sln).
+  # Job активируется при наличии решения в репо (src/ai-job-search-ex-ussr.sln).
   build-test:
     name: build + test
     if: ${{ hashFiles('**/*.sln') != '' }}
@@ -90,5 +90,5 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - run: dotnet build src/ai-job-search-by.sln -c Release
-      - run: dotnet test src/ai-job-search-by.sln -c Release --no-build
+      - run: dotnet build src/ai-job-search-ex-ussr.sln -c Release
+      - run: dotnet test src/ai-job-search-ex-ussr.sln -c Release --no-build

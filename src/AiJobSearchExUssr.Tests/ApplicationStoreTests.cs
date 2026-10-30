@@ -1,0 +1,276 @@
+using AiJobSearchExUssr.Models;
+using AiJobSearchExUssr.Services;
+using AiJobSearchExUssr.Services.Ai;
+using AiJobSearchExUssr.Tests.Logging;
+using Xunit;
+
+namespace AiJobSearchExUssr.Tests;
+
+// FLOW: ApplicationStore — схема базы + EnsureColumn-расширения,
+// INSERT OR IGNORE по DedupeHash, история откликов, PdfDocuments, SettingsKV.
+// LIFECYCLE: каждый тест — своя temp-база (SQLite); состояния между тестами нет.
+// THREAD: однопоточно.
+public class ApplicationStoreTests : IDisposable
+{
+    private readonly string _dir = LogServiceTests.TempLogDir();
+    private readonly ApplicationStore _store;
+
+    public ApplicationStoreTests()
+    {
+        _store = new ApplicationStore(
+            Path.Combine(_dir, "test.db"), new LogService(_dir, echoToConsole: false));
+        _store.Initialize();
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch { /* уборка тестов */ }
+    }
+
+    private static JobPosting Posting(string portalId = "remoteok", string? externalId = "1",
+        string url = "https://example.org/vacancy/1", string? company = "Acme") => new()
+    {
+        PortalId = portalId,
+        ExternalId = externalId,
+        CanonicalUrl = url,
+        Title = "Senior Developer",
+        Company = company,
+        DedupeHash = DedupeHasher.ComputeComposite(portalId, externalId, url),
+    };
+
+    [Fact]
+    public void Initialize_IsIdempotent()
+    {
+        // Двойной вызов миграций не падает и не дублирует (канон).
+        _store.Initialize();
+        _store.Initialize();
+        Assert.True(File.Exists(_store.DbPath));
+    }
+
+    [Fact]
+    public void UpsertVacancies_DedupesByDedupeHash()
+    {
+        var first = _store.UpsertVacancies([Posting(), Posting(url: "https://example.org/vacancy/2")]);
+
+        Assert.Equal(2, first);
+
+        // Повторный прогон по тем же вакансиям: INSERT OR IGNORE = 0 новеньких.
+        var second = _store.UpsertVacancies([Posting()]);
+
+        Assert.Equal(0, second);
+    }
+
+    [Fact]
+    public void EnsureVacancy_ReturnsSameRowId_ForSameHash()
+    {
+        var posting = Posting();
+        var id1 = _store.EnsureVacancy(posting);
+        var id2 = _store.EnsureVacancy(posting with { Title = "обновлённое название" });
+
+        Assert.Equal(id1, id2);
+    }
+
+    [Fact]
+    public void SaveApplication_RoundTrip_KeepsLegacyVectorColumnsNull()
+    {
+        // r21: векторизация вырезана; столбцы VectorJson/VectorModel остались
+        // в схеме для старых баз — новые записи пишут туда NULL и читают без потерь.
+        var vacancyId = _store.EnsureVacancy(Posting());
+        var record = new ApplicationRecord
+        {
+            Id = Guid.NewGuid(),
+            VacancyId = vacancyId,
+            Employer = "ООО Ромашка",
+            VacancyTitle = "Senior Developer",
+            VacancyUrl = "https://example.org/vacancy/1",
+            Status = "sent",
+            CvPath = @"C:\out\ООО Ромашка_20261022_141530.pdf",
+            SentAt = new DateTimeOffset(2026, 10, 22, 14, 15, 30, TimeSpan.FromHours(3)),
+            CreatedAt = new DateTimeOffset(2026, 10, 22, 14, 15, 30, TimeSpan.FromHours(3)),
+            ResumeText = "адаптированное резюме",
+            VectorJson = null,
+            VectorModel = null,
+        };
+
+        _store.SaveApplication(record);
+        var history = _store.RecentApplications(50);
+
+        var row = Assert.Single(history);
+        Assert.Equal("ООО Ромашка", row.Employer);
+        Assert.Equal("sent", row.Status);
+        Assert.Equal(vacancyId, row.VacancyId);
+        Assert.Equal(record.SentAt, row.SentAt);
+        Assert.Equal("адаптированное резюме", row.ResumeText);
+        Assert.Null(row.VectorJson);
+        Assert.Null(row.VectorModel);
+
+        var byId = _store.GetApplication(record.Id);
+        Assert.NotNull(byId);
+        Assert.Equal(record.Employer, byId!.Employer);
+    }
+
+    [Fact]
+    public void RecentApplications_OrdersBySentAtDesc()
+    {
+        var vacancyId = _store.EnsureVacancy(Posting());
+        _store.SaveApplication(new ApplicationRecord
+        {
+            Id = Guid.NewGuid(), VacancyId = vacancyId, Employer = "старый",
+            SentAt = new DateTimeOffset(2026, 10, 20, 10, 0, 0, TimeSpan.Zero),
+            CreatedAt = DateTimeOffset.Now,
+        });
+        _store.SaveApplication(new ApplicationRecord
+        {
+            Id = Guid.NewGuid(), VacancyId = vacancyId, Employer = "свежий",
+            SentAt = new DateTimeOffset(2026, 10, 22, 10, 0, 0, TimeSpan.Zero),
+            CreatedAt = DateTimeOffset.Now,
+        });
+
+        var history = _store.RecentApplications(50);
+
+        Assert.Equal("свежий", history[0].Employer);
+        Assert.Equal("старый", history[1].Employer);
+    }
+
+    [Fact]
+    public void PdfIndex_UpsertsByFilePath()
+    {
+        var path = Path.Combine(_dir, "ООО Ромашка_20261022_141530.pdf");
+        _store.SavePdfIndex(new PdfDocumentRecord
+        {
+            Id = Guid.NewGuid(),
+            FilePath = path,
+            FileHash = "AAA",
+            ExtractedText = "текст резюме",
+            VectorJson = null,
+            VectorModel = null,
+            IndexedAt = DateTimeOffset.Now,
+        });
+        // Повторная индексация того же файла (пересохранён) — апдейт, не дубль.
+        _store.SavePdfIndex(new PdfDocumentRecord
+        {
+            Id = Guid.NewGuid(),
+            FilePath = path,
+            FileHash = "BBB",
+            ExtractedText = "новый текст",
+            VectorJson = "[1,2]",
+            VectorModel = "local-embedder-test",
+            IndexedAt = DateTimeOffset.Now,
+        });
+
+        var all = _store.ListIndexedPdfs();
+
+        var row = Assert.Single(all);
+        Assert.Equal("BBB", row.FileHash);
+        Assert.Equal("[1,2]", row.VectorJson);
+    }
+
+    [Fact]
+    public void SettingsKV_RoundTrip()
+    {
+        Assert.Null(_store.GetSetting("resume.text"));
+
+        _store.SetSetting("resume.text", "моё резюме");
+        _store.SetSetting("resume.text", "моё резюме v2");
+
+        Assert.Equal("моё резюме v2", _store.GetSetting("resume.text"));
+    }
+
+    // ---- Журнал процессов («подбор хвостов», r20) ----
+
+    [Fact]
+    public void ProcessJournal_StartFinish_RoundTrip()
+    {
+        var id = _store.StartProcess("adapt", "ООО Херсним — курьер");
+        Assert.NotEqual(Guid.Empty, id);
+
+        var running = Assert.Single(_store.RecentProcesses());
+        Assert.Equal("adapt", running.Kind);
+        Assert.Equal("ООО Херсним — курьер", running.Detail);
+        Assert.Equal("running", running.Status);
+        Assert.Null(running.FinishedAt);
+
+        _store.FinishProcess(id, "done");
+        var closed = Assert.Single(_store.RecentProcesses());
+        Assert.Equal("done", closed.Status);
+        Assert.NotNull(closed.FinishedAt);
+    }
+
+    [Fact]
+    public void ProcessJournal_FinishIsIdempotent()
+    {
+        var id = _store.StartProcess("search", "«сисадмин» по 3 сайтам");
+        _store.FinishProcess(id, "done");
+        // повторный финал (двойное закрытие) не перетирает записанный исход
+        _store.FinishProcess(id, "failed");
+
+        Assert.Equal("done", Assert.Single(_store.RecentProcesses()).Status);
+    }
+
+    [Fact]
+    public void ProcessJournal_EmptyDetail_StoredAsNull()
+    {
+        _store.StartProcess("search", "   ");
+        var row = Assert.Single(_store.RecentProcesses());
+        Assert.Null(row.Detail);
+    }
+
+    [Fact]
+    public void SweepStaleProcesses_ClosesOnlyRunning_AndIsIdempotent()
+    {
+        var search = _store.StartProcess("search", "«сисадмин» по 3 сайтам");
+        var adapt = _store.StartProcess("adapt", "ООО Херсним — курьер");
+        // упавшая адаптация закрыта честным финалом — это НЕ хвост
+        _store.FinishProcess(adapt, "failed");
+
+        var swept = _store.SweepStaleProcesses();
+        var tail = Assert.Single(swept);
+        Assert.Equal(search, tail.Id);
+        Assert.Equal("search", tail.Kind);
+        Assert.Equal("interrupted", tail.Status);
+        Assert.NotNull(tail.FinishedAt);
+
+        // в базе хвост тоже закрыт, финал не тронут
+        Assert.Equal("interrupted",
+            _store.RecentProcesses().Single(p => p.Id == search).Status);
+        Assert.Equal("failed",
+            _store.RecentProcesses().Single(p => p.Id == adapt).Status);
+
+        // повторный свип пуст — идемпотентно
+        Assert.Empty(_store.SweepStaleProcesses());
+    }
+
+    // ------------------------------------------------------------ r20: кэш полного текста вакансии
+
+    [Fact]
+    public void UpdateVacancyDetail_CachesFullText_AndMarksFlag()
+    {
+        // Карточка листинга: короткая «шапка» hh.
+        var posting = Posting(portalId: "hh-by") with
+        {
+            DescriptionMd = "Опыт 3-6 лет\nВыплаты: Два раза в месяц",
+        };
+        _store.UpsertVacancies([posting]);
+
+        var updated = _store.UpdateVacancyDetail(
+            posting.DedupeHash, "Полное описание обязанностей и требований со страницы вакансии");
+
+        Assert.True(updated);
+        var row = _store.RecentVacancies().Single(v => v.DedupeHash == posting.DedupeHash);
+        Assert.Equal("Полное описание обязанностей и требований со страницы вакансии", row.DescriptionMd);
+        Assert.True(row.DetailFetched);
+    }
+
+    [Fact]
+    public void UpdateVacancyDetail_ReturnsFalse_ForUnknownOrDismissedHash()
+    {
+        // Неизвестный хэш — обновлять нечего.
+        Assert.False(_store.UpdateVacancyDetail("no-such-hash", "текст"));
+
+        // Крестик: вакансия перенесена в DismissedVacancies — в Vacancies её нет.
+        var posting = Posting(portalId: "hh-by");
+        _store.UpsertVacancies([posting]);
+        _store.DeleteVacancy(posting.DedupeHash);
+        Assert.False(_store.UpdateVacancyDetail(posting.DedupeHash, "текст"));
+    }
+}

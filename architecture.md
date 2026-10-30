@@ -1,4 +1,4 @@
-# architecture.md — каноническая архитектура ai-job-search-by
+# architecture.md — каноническая архитектура ai-job-search-ex-ussr
 
 Статус: канонический документ | Дата ревизии: 2026-10-30 | Поддержка: ThreeI
 Основания: реестр порталов config/registry.json, живые прогоны
@@ -7,7 +7,7 @@
 
 ## 1. Каноническое решение
 
-ai-job-search-by — опенсорсный **локальный** инструмент поиска работы
+ai-job-search-ex-ussr — опенсорсный **локальный** инструмент поиска работы
 (основной сценарий — Беларусь, Россия, Казахстан, Узбекистан — четыре зеркала
 группы hh; второй — международная удалёнка): адаптация
 github.com/MadsLorentzen/ai-job-search (MIT) БЕЗ Claude Code (официально
@@ -57,17 +57,17 @@ THREAD; «никаких тихих игноров» — каждый выход
 │  PdfOverlayService | PdfIndexerService (PdfPig, текст)      │
 │  ApplicationStore (SQLite+Dapper, FK, мягкие удаления)      │
 │  KeysCheckService | ChainProbe | StartupProbeHub            │
-│  LogService (окно + диск) | LegacyPathMigrator              │
+│  LogService (окно + диск) | AppPaths (пути данных)          │
 └──────────────────────────┬─────────────────────────────────┘
                            ▼
 ┌────────────────────────────────────────────────────────────┐
 │ Storage (профиль пользователя C:\Users\<юзер>\)             │
-│  ai-job-search-by\state\  local.json (ключи), llm7-budget,  │
+│  ai-job-search-ex-ussr\state\  local.json (ключи), llm7-budget,  │
 │                           modelscope-requests, sticky,      │
 │                           keywords.json, session-checks.log │
-│  ai-job-search-by\data\   ai-job-search-by.db (SQLite)      │
-│  ai-job-search-by\resume\ resume.db + профили               │
-│  ai-job-search-by\logs\   протокол по дням                  │
+│  ai-job-search-ex-ussr\data\   ai-job-search-ex-ussr.db (SQLite)      │
+│  ai-job-search-ex-ussr\resume\ resume.db + профили               │
+│  ai-job-search-ex-ussr\logs\   протокол по дням                  │
 │  <exe>\resume\ (PDF откликов)  <exe>\exports\ (CSV)         │
 └──────────────────────────┬─────────────────────────────────┘
                            ▼
@@ -90,9 +90,10 @@ THREAD; «никаких тихих игноров» — каждый выход
 UpdateAsync(updater) под SemaphoreSlim, только dirty-поля; битый json =
 quarantine + фолбэк на дефолты (не крах). Ключеобразные значения в
 нетрекнутых файлах не попадают в логи и репозиторий (гард-тесты
-RepoSecretsGuardTests / TestEnvGuard). Одноразовый перенос со старого адреса
-`%APPDATA%\ai-job-search-by` — LegacyPathMigrator (решение владельца
-2026-10-25: один рабочий каталог в профиле).
+RepoSecretsGuardTests / TestEnvGuard). Одноразовый перенос со старых
+адресов выполнен и вычищен из кода (r22c, решение владельца 2026-10-30):
+при старте приложение ничего не переносит, пути считаются только по
+текущим именам (AppPaths).
 
 ### 3.2 AI-слой
 
@@ -169,6 +170,10 @@ praca.by — не используется: автоматизация запр�
 2. План страниц: счётчик `h1 «Найдено N вакансий»` (regex `Найден\w{0,2}`
    + число с пробелами/NBSP) + старший `data-qa="pager-page"` (0-базный);
    URL страниц — подмена `page=N` в первом URL (search_session_id не нужен).
+   Сайт отдаёт в HTML ровно 20 карточек на страницу, сколько ни проси
+   (параметр `items_on_page` пересчитывает пагинатор, но карточки
+   дорисовывает JavaScript) — поэтому план страниц считается по счётчику
+   и фактическим 20 карточкам.
 3. Кэш HTML всех страниц прогона → разбор карточек из кэша. Каждая
    следующая страница — НОВАЯ ВКЛАДКА с первой страницы (Referer = первая
    страница) с рваной паузой 5–25 с: мгновенная скачка по страницам
@@ -267,7 +272,7 @@ hideUnknown, allowed)`: чужая страна (не из разрешённы�
 ни при новых поисках — UpsertVacancies сверяется с имеющимися и удалёнными);
 вакансия с откликом удаляется мягко — запись Applications ОСТАЁТСЯ
 (связи FK мягкие, пересборка таблицы один раз при первом запуске
-новой сборки). Путь базы передаётся снаружи (`%USERPROFILE%\ai-job-search-by\data\`).
+новой сборки). Путь базы передаётся снаружи (`%USERPROFILE%\ai-job-search-ex-ussr\data\`).
 Журнал процессов (Processes) — старт/финал долгих операций с подбором
 хвостов при старте: §3.8.
 
@@ -275,7 +280,7 @@ hideUnknown, allowed)`: чужая страна (не из разрешённы�
 
 UI не блокируется; обновления через Dispatcher.UIThread; сеть/LLM — async;
 Task.Run для тяжёлых операций. `LogService`: окно (кольцо 300) + диск
-(`ai-job-search-by-ГГГГММДД.log`) — каждая строка и там, и там; LogWarn —
+(`ai-job-search-ex-ussr-ГГГГММДД.log`) — каждая строка и там, и там; LogWarn —
 осознанный skip с причиной; сбой диска — не тихий (stderr + счётчик).
 Протокол — главный инструмент отладки у владельца: «закрыл — открыл —
 пропало» разбирается шапкой базы («[база] путь: …; вакансий N, крестиков M»).
@@ -424,8 +429,8 @@ Temperature 0.3; кэш ответа 30 дней в SettingsKV.
 
 `Program.Main` ДО мигратора и DI-контейнера берёт «замок единственности»
 (`AcquireSingleInstanceGuard`): **Windows** — именованный Mutex
-`Global\AiJobSearchBy_SingleInstance` (канон Windows);
-**не-Windows** — блокировочный файл `<профиль>\ai-job-search-by\data\app.lock`,
+`Global\AiJobSearchExUssr_SingleInstance` (канон Windows);
+**не-Windows** — блокировочный файл `<профиль>\ai-job-search-ex-ussr\data\app.lock`,
 открытый `FileStream` с `FileShare.None` (внутри — PID и время). Причина
 гибрида: в ряде песочниц/ядер именованные мьютексы рантайма НЕ шарятся
 между процессами (воспроизведено 2026-10-29: второй процесс получал
@@ -435,7 +440,7 @@ Temperature 0.3; кэш ответа 30 дней в SettingsKV.
 `AlreadyRunning` (ресурс занят) — второй экземпляр: в протокол warn,
 `Program.ShowAlreadyRunningNotice = true`, Avalonia поднимается и
 `App.OnFrameworkInitializationCompleted` вместо главного окна строит
-кодом маленькое окно «ai-job-search-by уже запущено» с кнопкой ОК
+кодом маленькое окно «ai-job-search-ex-ussr уже запущено» с кнопкой ОК
 (DI не поднимается — ни базы, ни автопробы каталогов, ни сети);
 закрытие окна гасит lifetime и процесс. `Unavailable` (среда не дала
 ни мьютекса, ни файла) — честная строка в протокол, старт продолжается

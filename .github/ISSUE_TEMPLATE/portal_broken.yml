@@ -58,7 +58,7 @@ body:
     attributes:
       label: Журнал
       description: |
-        Содержимое `%APPDATA%\ai-job-search-by\logs\` (последний файл).
+        Содержимое `%USERPROFILE%\ai-job-search-ex-ussr\logs\` (последний файл).
         Проверьте, что в нём нет чужих персональных данных.
 
   - type: checkboxes

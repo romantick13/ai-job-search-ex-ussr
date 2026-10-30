@@ -22,7 +22,7 @@
 
 1. **Починить сломанный портал.** Самая частая поломка — портал поменял
    вёрстку или формат фида. Починить — 15 минут, если разобраться.
-2. **Прислать баг-репорт** с журналом из `C:\Users\<юзер>\ai-job-search-by\logs\`
+2. **Прислать баг-репорт** с журналом из `C:\Users\<юзер>\ai-job-search-ex-ussr\logs\`
    (без ключей: ключи живут в `local.json` и в логи не пишутся).
 3. **Перевести интерфейс** (см. «Переводы»).
 4. **Добавить портал** (см. ниже).
@@ -85,7 +85,7 @@
 ### 3. Адаптер
 
 Контракт — в исходниках проекта: `IPortalService`
-(`src/AiJobSearchBy/Portals/IPortalService.cs`), реализация — наследованием
+(`src/AiJobSearchExUssr/Portals/IPortalService.cs`), реализация — наследованием
 одного из базовых классов: `ApiPortalBase` (JSON API), `FeedPortalBase`
 (RSS/Atom), `ScrapePortalBase` (polite-скрапинг), его наследники
 `BrowserEmulationPortalBase` (браузерная эмуляция выдачи — зеркала hh) и
@@ -130,7 +130,7 @@ python tools/gen_readme_counters.py
 ## Ключи при отладке
 
 Свои ключи для локального запуска кладите в
-`C:\Users\<юзер>\ai-job-search-by\state\local.json` — он в `.gitignore`. Ключи не
+`C:\Users\<юзер>\ai-job-search-ex-ussr\state\local.json` — он в `.gitignore`. Ключи не
 коммитятся никогда: CI-джоб `secrets-guard` блокирует merge. На скриншотах
 ключей быть не должно (см. [SECURITY.md](SECURITY.md)).
 
@@ -185,7 +185,7 @@ Golden round-trip PDF→PDF (разбор через PdfPig) ловит порч
 
 Отправляя PR, вы соглашаетесь, что ваш код лицензируется под MIT как
 [`LICENSE-THREEI.md`](LICENSE-THREEI.md) (отсюда строка «…and the
-ai-job-search-by contributors» в копирайте). [`LICENSE`](LICENSE) —
+ai-job-search-ex-ussr contributors» в копирайте). [`LICENSE`](LICENSE) —
 оригинальная MIT-лицензия ai-job-search (Mads Lorentzen), сохранена как
 атрибуция: см. «Благодарности» в [README.md](README.md).
 
