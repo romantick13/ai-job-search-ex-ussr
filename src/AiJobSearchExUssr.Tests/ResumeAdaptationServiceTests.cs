@@ -60,6 +60,31 @@ public class ResumeAdaptationServiceTests
     }
 
     [Fact]
+    public void BuildPrompt_Carries_ChannelReviewRules()
+    {
+        // r22j: ревью промпта по материалам канала Step Up Dev (@developerKiryl,
+        // JobJump) — hh с октября скринит отклики ИИ до рекрутера (обязательные
+        // vs желательные требования), плюс «правило трёх вопросов» для строк опыта.
+        var (system, _) = ResumeAdaptationService.BuildPrompt("резюме", Posting());
+
+        // ИИ-скрининг назван целью адаптации.
+        Assert.Contains("ИИ-скрининг", system);
+
+        // Правило трёх вопросов: строка выдерживает три уточняющих «почему».
+        Assert.Contains("три уточняющих вопроса", system);
+
+        // Честная пометка вместо выдумывания: [нет подтверждения: …].
+        Assert.Contains("[нет подтверждения:", system);
+
+        // ATS ищет дословные совпадения — названия технологий как в вакансии.
+        Assert.Contains("дословно", system);
+
+        // Буллет «что сделал → результат»; цифры не выдумываются.
+        Assert.Contains("что сделал (технологии) → результат", system);
+        Assert.Contains("новые не добавляй", system);
+    }
+
+    [Fact]
     public void BuildPrompt_TruncatesLongDescription()
     {
         var posting = Posting() with
