@@ -37,11 +37,19 @@ public partial class SettingsRow : ObservableObject
 // ключи ИИ-цепи, папка откликов. Запись —
 // ConfigService.UpdateAiKey (local.json, атомарно);
 // применяются после перезапуска. r21: секция эмбеддера вырезана вместе с векторизацией.
+// r25: кастомные звенья (Chain.Custom) применяются к цепи СРАЗУ (Rebuild
+// ChainRuntime) — добавил агрегатора/модель в настройках, оно в цепи без
+// перезапуска; удаление всех звеньев тоже записывается (раньше пустой
+// список не сохранялся вовсе). Ключи встроенных — по-прежнему при
+// перезапуске (провайдеры — синглтоны DI с фиксированным HttpClient/ключом).
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly Services.ConfigService? _config;
     private readonly Services.IApplicationStore? _store;
     private readonly Services.ILogService? _log;
+
+    // r25: живая цепь — пересборка на лету после записи Chain.Custom.
+    private readonly Services.Ai.ChainRuntime? _chainRuntime;
 
     public ObservableCollection<SettingsRow> Rows { get; } = new();
 
@@ -60,11 +68,12 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     public SettingsViewModel(Services.ConfigService config, Services.IApplicationStore store,
-        Services.ILogService log)
+        Services.ILogService log, Services.Ai.ChainRuntime? chainRuntime = null)
     {
         _config = config;
         _store = store;
         _log = log;
+        _chainRuntime = chainRuntime;
         ConfigPath = config.FilePath;
         Load();
     }
@@ -141,16 +150,24 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         // кастомные звенья — единым узлом Chain.Custom (local.json,
-        // атомарно); карточки на главном экране обновятся сразу (ReloadCustomLinks)
+        // атомарно). r25: пишем ВСЕГДА — пустой список тоже (удалил все
+        // звенья — секция очищается; раньше пустая правка молча терялась);
+        // и сразу пересобираем цепь — новое звено в цепи без перезапуска.
+        // Карточки на главном экране обновятся отдельно (ReloadCustomLinks
+        // при закрытии окна).
         var custom = Rows.Where(r => r.IsCustom).Select(r => new Services.ChainLinkData(
             r.ProviderId,
             string.IsNullOrWhiteSpace(r.CustomName) ? r.DisplayName : r.CustomName.Trim(),
             r.BaseUrl.Trim(),
             r.CustomModel.Trim(),
             r.ApiKey.Trim())).ToList();
-        if (custom.Count > 0)
+        // Пишем только если звенья есть/были: пусто и раньше пусто — в файл не
+        // дышим (без шума «очищено» на каждом сохранении ключей).
+        var hadCustom = _config?.PeekCustomLinks().Count > 0;
+        if (custom.Count > 0 || hadCustom)
         {
             _config?.UpdateChain(custom);
+            _chainRuntime?.Rebuild();
         }
 
         // r21: секция эмбеддера вырезана вместе с векторизацией.

@@ -1,5 +1,6 @@
 using AiJobSearchExUssr.Services;
 using Microsoft.Extensions.DependencyInjection;
+using System.Linq;
 
 namespace AiJobSearchExUssr;
 
@@ -51,7 +52,10 @@ internal static class CompositionRoot
             // и подъём lm-studio при «Проверить всех» (ProbeRowAsync).
             sp.GetRequiredService<Services.Ai.LmStudioCli>(),
             // Смежные запросы поиска (родственные специальности к запросу).
-            sp.GetRequiredService<Services.Ai.RelatedQueriesService>()));
+            sp.GetRequiredService<Services.Ai.RelatedQueriesService>(),
+            // r25: живое состояние цепи — чекбоксы карточек глушат звенья
+            // для реальных запросов (не только для «Проверить всех»).
+            sp.GetRequiredService<Services.Ai.ChainRuntime>()));
         services.AddSingleton<MainWindow>();
 
         // Портальный каркас: реестр наполняется адаптерами; KeysCheck читает
@@ -313,14 +317,31 @@ internal static class CompositionRoot
                 // и без липучести.
                 freeCatalog: false);
         });
+        // r25: живое состояние цепи — единственный источник звеньев для роутинга.
+        // • полный список = встроенные DI-провайдеры + кастомные из local.json
+        //   (Chain.Custom, хвост фолбэка после встроенных);
+        // • чекбоксы карточек (chain.disabled в SettingsKV) глушат звенья для
+        //   ВСЕХ ИИ-стадий: какие остались — в такие и стучимся;
+        // • Rebuild() после правок настроек — добавил звено в настройках, оно
+        //   в цепи без перезапуска приложения.
+        services.AddSingleton<Services.Ai.ChainRuntime>(sp =>
+        {
+            var log = sp.GetRequiredService<Services.ILogService>();
+            var config = sp.GetRequiredService<ConfigService>();
+            return new Services.Ai.ChainRuntime(
+                log,
+                source: () =>
+                    sp.GetServices<Services.Ai.IAiChatProvider>()
+                        .Select(p => new Services.Ai.ChainRuntime.ChainEntry(p.Name, p))
+                        .Concat(config.BuildCustomProviders(log)
+                            .Select(c => new Services.Ai.ChainRuntime.ChainEntry(c.Id, c.Provider)))
+                        .ToList(),
+                store: sp.GetRequiredService<Services.IApplicationStore>());
+        });
         services.AddSingleton<Services.Ai.TaskRoutingPolicy>(sp =>
             new Services.Ai.TaskRoutingPolicy(
                 sp.GetRequiredService<Services.ILogService>(),
-                sp.GetServices<Services.Ai.IAiChatProvider>()
-                    // Кастомные звенья из local.json (Chain.Custom) —
-                    // полноправный хвост фолбэка после встроенных.
-                    .Concat(sp.GetRequiredService<ConfigService>()
-                        .BuildCustomProviders(sp.GetRequiredService<Services.ILogService>())),
+                sp.GetRequiredService<Services.Ai.ChainRuntime>(),
                 coverLetterOrder: new[] { "llm7", "modelscope", "siliconflow", "openrouter", "orcarouter", "lm-studio" })); // письма — от дешёвых к дорогим
 
         // Смежные запросы поиска: ИИ называет 1-2 родственных запроса, кэш в

@@ -66,6 +66,10 @@ public partial class MainViewModel : ObservableObject
     // Смежные запросы: ИИ называет 1-2 родственных запроса к поиску,
     // каждый проходит лёгким preview-проходом.
     private readonly Services.Ai.RelatedQueriesService? _related;
+
+    // r25: живое состояние ИИ-цепи — чекбоксы карточек глушат звенья для
+    // реальных запросов (не только для «Проверить всех»).
+    private readonly Services.Ai.ChainRuntime? _chainRuntime;
     // «крестики» юзера (DedupeHash) — удалённое из базы не возвращается
     // ни в окно, ни в базу, ни при следующих поисках. Грузится при старте.
     private readonly HashSet<string> _dismissed = new(StringComparer.Ordinal);
@@ -259,7 +263,8 @@ public partial class MainViewModel : ObservableObject
         Services.ConfigService? config = null,
         ResumeProfilesViewModel? resumeProfiles = null,
         Services.Ai.LmStudioCli? lmStudio = null,
-        Services.Ai.RelatedQueriesService? related = null)
+        Services.Ai.RelatedQueriesService? related = null,
+        Services.Ai.ChainRuntime? chainRuntime = null)
     {
         _log = log;
         _config = config;
@@ -271,6 +276,7 @@ public partial class MainViewModel : ObservableObject
         _resume = resumeProfiles;
         _lmStudio = lmStudio;
         _related = related;
+        _chainRuntime = chainRuntime;
         Resume = resumeProfiles ?? new ResumeProfilesViewModel();
 
         // Счётчик «найдено X вакансий» у окна «Вакансии» — живёт
@@ -1899,16 +1905,24 @@ public partial class MainViewModel : ObservableObject
         AppendCustomLinkRows();
     }
 
-    // Чекбоксы цепи персистятся в SettingsKV (как выбор сайтов): отключённые
-    // звенья не проверяются и не участвуют в цепи после перезапуска.
+    // Чекбоксы цепи — r25: единый источник правды ChainRuntime: гасит звенья
+    // для ВСЕХ ИИ-стадий сразу и сам пишет chain.disabled в SettingsKV
+    // (переживает перезапуск). Тесты/дизайнер без runtime — старый путь:
+    // прямая запись в SettingsKV.
     private void PersistChainDisabled()
     {
+        var disabledIds = Providers.Where(p => !p.InChain).Select(p => p.LinkId).ToArray();
+        if (_chainRuntime is not null)
+        {
+            _chainRuntime.SetDisabled(disabledIds);
+            return;
+        }
+
         if (_store is null)
         {
             return;
         }
 
-        var disabledIds = Providers.Where(p => !p.InChain).Select(p => p.LinkId).ToArray();
         _ = Task.Run(() =>
         {
             try

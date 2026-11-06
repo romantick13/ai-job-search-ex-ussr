@@ -333,14 +333,20 @@ public sealed class ConfigService : ILocalSecrets
                   $"ключ {Mask(l.ApiKey)}")) + $" ({FilePath})");
     }
 
+    // Кастомное звено в сборе: Id записи Chain.Custom (он же LinkId чекбокса
+    // карточки — r25, честные чекбоксы) + провайдер с именем звена.
+    public sealed record CustomProviderLink(string Id, string Name,
+        Services.Ai.OpenAiCompatibleProvider Provider);
+
     // кастомные звенья как ПОЛНОЦЕННЫЕ провайдеры адаптации — хвост
     // фолбэка цепи (qualityRank 7+, после встроенных). Локальные лимиты не
     // ведём (суточные капы кастомных провайдеров не публикуются — [cost]
     // соберёт фактически). Битый адрес не валит сборку графа : WARN и
-    // звено пропущено.
-    public IReadOnlyList<Services.Ai.OpenAiCompatibleProvider> BuildCustomProviders(Services.ILogService log)
+    // звено пропущено. r25: возвращает (Id, Provider) — Id нужен
+    // ChainRuntime, чтобы чекбокс карточки глушил именно это звено.
+    public IReadOnlyList<CustomProviderLink> BuildCustomProviders(Services.ILogService log)
     {
-        var result = new List<Services.Ai.OpenAiCompatibleProvider>();
+        var result = new List<CustomProviderLink>();
         var rank = 7;
         foreach (var link in PeekCustomLinks())
         {
@@ -356,7 +362,7 @@ public sealed class ConfigService : ILocalSecrets
 
             try
             {
-                result.Add(new Services.Ai.OpenAiCompatibleProvider(
+                var provider = new Services.Ai.OpenAiCompatibleProvider(
                     log,
                     name: link.Name,
                     baseUrl: link.BaseUrl,
@@ -364,7 +370,8 @@ public sealed class ConfigService : ILocalSecrets
                     apiKey: string.IsNullOrWhiteSpace(link.ApiKey) ? null : link.ApiKey,
                     qualityRank: rank++,
                     requireApiKey: link.RequiresKey,
-                    signupHint: "настройки приложения"));
+                    signupHint: "настройки приложения");
+                result.Add(new CustomProviderLink(link.Id, link.Name, provider));
             }
             catch (Exception ex)
             {
