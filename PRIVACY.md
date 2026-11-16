@@ -87,9 +87,9 @@ WeWorkRemotely, NoDesk): те же публичные запросы за лен
 
 | Файл/папка | Что это | Секреты |
 |---|---|---|
-| `state\local.json` | ключи API | не прикладывать к баг-репортам никогда |
-| `state\keywords.json`, `state\llm7-budget.json` и др. | словарь ключевых слов, счётчики квот | нет |
-| `state\session-checks.log` | журнал проб провайдеров | нет |
+| `local.json` (в корне папки данных) | ключи API, кастомные звенья цепи | не прикладывать к баг-репортам никогда |
+| `keywords.json` (рядом с local.json), `state\llm7-budget.json`, `state\modelscope-requests.json`, `state\openrouter-sticky.json` | словарь ключевых слов, регистры квот | нет |
+| `logs\session-checks.log` | журнал проб провайдеров | нет |
 | `data\ai-job-search-ex-ussr.db` | база вакансий, откликов, настроек | личные данные |
 | `resume\` | профили резюме и распознанные тексты | личные данные |
 | `logs\ai-job-search-ex-ussr-ГГГГММДД.log` | протокол по дням | ключей нет (гард-тест); тексты вакансий — есть |

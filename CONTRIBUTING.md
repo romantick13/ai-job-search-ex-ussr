@@ -136,7 +136,7 @@ python tools/gen_readme_counters.py
 ## Ключи при отладке
 
 Свои ключи для локального запуска кладите в
-`C:\Users\<юзер>\ai-job-search-ex-ussr\state\local.json` — он в `.gitignore`. Ключи не
+`C:\Users\<юзер>\ai-job-search-ex-ussr\local.json` — он в `.gitignore`. Ключи не
 коммитятся никогда: CI-джоб `secrets-guard` блокирует merge. На скриншотах
 ключей быть не должно (см. [SECURITY.md](SECURITY.md)).
 
