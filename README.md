@@ -25,7 +25,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Windows](https://img.shields.io/badge/platform-Windows%2010%2B-informational.svg)](https://learn.microsoft.com/dotnet/core/install/windows)
 [![Price: Free](https://img.shields.io/badge/price-free-success.svg)]()
-[![Download](https://img.shields.io/badge/Скачать-zip%20win--x64-blue.svg)](releases/latest/download/ai-job-search-ex-ussr-win-x64.zip)
+[![Download](https://img.shields.io/badge/Скачать-zip%20win--x64-blue.svg)](https://github.com/romantick13/ai-job-search-ex-ussr/releases/download/v1.0.0/ai-job-search-ex-ussr-win-x64.zip)
 [![Boosty](https://img.shields.io/badge/Поддержать-Boosty-orange.svg)](https://boosty.to/romantick13)
 
 <img src="docs/screenshots/main.png" alt="Главное окно: вакансии четырёх зеркал hh и remote-фидов в одной таблице" width="880">
@@ -108,7 +108,7 @@ hh.md/hh.ge/hh.am — чужие сайты), их вакансии попада
 1. Скачайте готовую сборку — ai-job-search-ex-ussr-win-x64.zip
    (ссылка всегда отдаёт последний релиз; SHA256 — в описании релиза).
 
-   [![Download](https://img.shields.io/badge/Скачать-zip%20win--x64-blue.svg)](releases/latest/download/ai-job-search-ex-ussr-win-x64.zip)
+   [![Download](https://img.shields.io/badge/Скачать-zip%20win--x64-blue.svg)](https://github.com/romantick13/ai-job-search-ex-ussr/releases/download/v1.0.0/ai-job-search-ex-ussr-win-x64.zip)
 
    Распакуйте zip с программой в папку без прав администратора (.NET ставить
    не нужно — рантайм внутри). Про обновление существующей установки —
